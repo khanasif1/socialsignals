@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${RESOURCE_GROUP:?}" "${APP_NAME:?}"
+# Bicep owns all application settings and identity-scoped RBAC assignments.
+az webapp config set --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" \
+  --startup-file 'bash startup.sh' --always-on true --ftps-state Disabled \
+  --min-tls-version 1.2 --only-show-errors --output none
