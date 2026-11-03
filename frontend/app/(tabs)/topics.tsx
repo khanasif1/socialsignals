@@ -1,5 +1,5 @@
 import React from 'react';
-import { useWindowDimensions, View } from 'react-native';
+import { Pressable, useWindowDimensions, View } from 'react-native';
 import { Card } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from '../../components/Typography';
@@ -17,9 +17,11 @@ export default function Topics() {
     <Heading title="Follow your curiosity." subtitle="A constellation of ideas. Pick a topic and connect the dots." />
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
     {groups.map(({ name, posts }, index) => {
-      return <Card key={name} mode="elevated" elevation={1} accessibilityRole="button" accessibilityLabel={`Explore ${name}`}
+      return <Pressable key={name} accessibilityRole="button" accessibilityLabel={`Explore ${name}`}
         onPress={() => router.push({ pathname: '/discover', params: { topic: name } })}
-        style={{ backgroundColor: c.surface, borderRadius: 28, width: wide ? '47%' : '100%', flexGrow: 1 }}>
+        style={{ width: wide ? '47%' : '100%', flexGrow: 1 }}>
+        <Card mode="elevated" elevation={1}
+          style={{ backgroundColor: c.surface, borderRadius: 28, flexGrow: 1 }}>
         <Card.Content style={{ padding: 24, gap: 18 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View style={{ padding: 14, borderRadius: 19, backgroundColor: index % 2 ? c.raised : c.accentBg }}>
@@ -34,7 +36,8 @@ export default function Topics() {
             <Label color={c.accentOnTint}>Start here</Label><Text style={{ color: c.ink, fontSize: 14, lineHeight: 22 }}>{posts[0]?.insight.title}</Text>
           </View>
         </Card.Content>
-      </Card>;
+        </Card>
+      </Pressable>;
     })}
     </View>
     {!groups.length && <Empty />}

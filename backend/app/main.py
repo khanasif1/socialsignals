@@ -3,6 +3,7 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from datetime import date
+from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlencode
 
@@ -18,7 +19,7 @@ from pydantic import ValidationError
 from app.api.auth import digest, encryption_key, issue, require_session
 from app.config import Settings, get_settings
 from app.models import (
-    ConnectResponse, Explanation, Health, IntegrationStatus, LoginRequest, Message, Post,
+    ConnectResponse, CrawlStatus, Explanation, Health, IntegrationStatus, LoginRequest, Message, Post,
     PostPage, Preferences, ReadRequest, Session, Statistics, SyncStatus, Topic,
 )
 from app.services.ai import AIUnavailable, Intelligence
@@ -108,7 +109,7 @@ def create_app(settings: Settings | None = None, store: JsonStore | None = None,
     def health():
         try:
             app.state.store.health()
-            return Health(status="ok", storage="connected")
+            return Health(status="ok", storage="connected", worker_image=Path("/opt/signal-webjob/run.sh").is_file())
         except (AzureError, OSError):
             return JSONResponse(status_code=503, content={"status": "degraded", "storage": "unavailable"})
 
@@ -127,10 +128,12 @@ def create_app(settings: Settings | None = None, store: JsonStore | None = None,
     @app.get("/api/linkedin/status", response_model=IntegrationStatus, dependencies=protected)
     def linkedin_status():
         identity = app.state.store.read("configuration/linkedin.json", {})
+        crawler = CrawlStatus.model_validate(app.state.store.read("metadata/last-crawl.json", {}))
         return IntegrationStatus(
+            mode="crawler" if crawler.enabled else "export", crawler=crawler,
             connected=bool(identity.get("subject") and identity.get("expires_at", 0) > now().timestamp()),
             oauth_available=bool(settings.linkedin_client_id and settings.linkedin_client_secret.get_secret_value()),
-            message="LinkedIn identity connection only. Standard permissions do not grant personal home-feed access. Import your authorized LinkedIn export.",
+            message=crawler.message if crawler.enabled else "LinkedIn identity connection only. Standard permissions do not grant personal home-feed access. Import your authorized LinkedIn export.",
         )
 
     @app.post("/api/linkedin/connect", response_model=ConnectResponse, dependencies=protected)
@@ -261,8 +264,9 @@ def create_app(settings: Settings | None = None, store: JsonStore | None = None,
         key = f"configuration/explanations/{id}.json"
         cached = app.state.store.read(key)
         if cached:
-            return Explanation.model_validate(cached)
+            return Explanation.model_validate({**cached, "generated": True})
         result = app.state.ai.explain(post)
+        result.generated = True
         with app.state.store.writer():
             app.state.store.write(key, result.model_dump(mode="json"))
         return result

@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
+import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
 import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
 import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
@@ -20,7 +22,7 @@ function Navigation() {
   const reducedMotion = useReducedMotion();
   const theme = useMemo(() => materialTheme(isDark, reducedMotion), [isDark, reducedMotion]);
   return <PaperProvider theme={theme}>
-    <Head><title>SIGNAL — Personal intelligence</title><meta name="description" content="Your private, distraction-free technical reader." /></Head>
+    {Platform.OS === 'web' && <Head><title>SIGNAL — Personal intelligence</title><meta name="description" content="Your private, distraction-free technical reader." /></Head>}
     <StatusBar style={isDark ? 'light' : 'dark'} />
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg }, animation: 'slide_from_right' }}>
       <Stack.Screen name="(tabs)" />
@@ -30,6 +32,8 @@ function Navigation() {
 }
 export default function Layout() {
   const [loaded, error] = useFonts({
+    ...Ionicons.font,
+    ...MaterialCommunityIcons.font,
     SignalRegular: Inter_400Regular,
     SignalMedium: Inter_500Medium,
     SignalBold: Inter_700Bold,

@@ -20,6 +20,10 @@ values = {
     "linkedinClientId": env.get("SIGNAL_LINKEDIN_CLIENT_ID", ""),
     "linkedinClientSecret": env.get("SIGNAL_LINKEDIN_CLIENT_SECRET", ""),
     "corsOrigins": json.loads(env.get("SIGNAL_CORS_ORIGINS", "[]")),
+    "containerImage": env.get("SIGNAL_CONTAINER_IMAGE", ""),
+    "linkedinCrawlerEnabled": env.get("SIGNAL_LINKEDIN_CRAWLER_ENABLED", "false").lower() == "true",
+    "linkedinCrawlerUsernameSecretUri": env.get("LINKEDIN_USERNAME_SECRET_URI", ""),
+    "linkedinCrawlerPasswordSecretUri": env.get("LINKEDIN_PASSWORD_SECRET_URI", ""),
 }
 with open(sys.argv[1], "w") as file:
     json.dump({"parameters": {k: {"value": v} for k, v in values.items()}}, file)

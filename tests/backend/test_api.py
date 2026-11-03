@@ -1,5 +1,8 @@
 import json
 from datetime import timedelta
+from types import SimpleNamespace
+
+import pytest
 
 from app.services.reader import now
 
@@ -13,8 +16,10 @@ def ingest(client, auth, data):
     return client.get("/api/posts", headers=auth).json()["items"][0]
 
 
-def test_health_and_auth(client):
-    assert client.get("/api/health").json() == {"status": "ok", "storage": "connected"}
+@pytest.mark.parametrize("installed", [False, True])
+def test_health_and_auth(client, monkeypatch, installed):
+    monkeypatch.setattr("app.main.Path", lambda path: SimpleNamespace(is_file=lambda: installed))
+    assert client.get("/api/health").json() == {"status": "ok", "storage": "connected", "worker_image": installed}
     for path in ("/api/posts", "/api/bookmarks", "/api/settings", "/api/linkedin/status", "/api/statistics"):
         assert client.get(path).status_code == 401
     assert client.post("/api/auth/login", json={"secret": "wrong"}).status_code == 401
@@ -68,6 +73,20 @@ def test_duplicate_export_is_idempotent(client, auth, post_data):
     assert first["id"] == second["id"]
     assert client.get("/api/posts", headers=auth).json()["total"] == 1
     assert client.get("/api/statistics", headers=auth).json()["total_posts"] == 1
+
+
+def test_explanation_provenance_is_server_controlled(application, client, auth, post_data, monkeypatch):
+    post = ingest(client, auth, post_data)
+    original = application.state.ai.explain
+    monkeypatch.setattr(application.state.ai, "explain", lambda post: original(post).model_copy(update={"generated": False}))
+    url = f"/api/posts/{post['id']}/explain"
+    assert client.post(url, headers=auth).json()["generated"] is True
+    key = f"configuration/explanations/{post['id']}.json"
+    cached = application.state.store.read(key)
+    assert cached["generated"] is True
+    with application.state.store.writer():
+        application.state.store.write(key, {**cached, "generated": False})
+    assert client.post(url, headers=auth).json()["generated"] is True
 
 
 def test_retention_preserves_saved_content(application, client, auth, post_data):

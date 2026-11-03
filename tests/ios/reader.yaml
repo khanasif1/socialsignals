@@ -1,0 +1,43 @@
+appId: com.signal.nativecheck
+---
+- launchApp:
+    clearState: true
+- tapOn: Open settings
+- scrollUntilVisible:
+    element:
+      text: Private backend passphrase
+    direction: DOWN
+- tapOn: Private backend passphrase
+- inputText: test-login-passphrase-with-32-characters
+- hideKeyboard
+- tapOn: Connect private backend
+- extendedWaitUntil:
+    visible: Signed in. Your session is stored securely on iOS.
+    timeout: 30000
+- tapOn: SIGNAL home
+- tapOn:
+    text: "Read RAG native integration: evaluate retrieval independently."
+    index: 0
+- scrollUntilVisible:
+    element:
+      text: "Source image 1 of 1 for RAG native integration: evaluate retrieval independently."
+    direction: DOWN
+- extendedWaitUntil:
+    notVisible: Loading source image
+    timeout: 15000
+- assertNotVisible: "Source image unavailable.*"
+- takeScreenshot: native-reader
+- scrollUntilVisible:
+    element:
+      text: Save
+    direction: DOWN
+- tapOn: Save
+- assertVisible: Saved
+- tapOn: Mark read
+- assertVisible: Mark unread
+- scrollUntilVisible:
+    element:
+      text: THE ORIGINAL POST
+    direction: DOWN
+- assertVisible: "RAG native integration: evaluate retrieval independently."
+- tapOn: SIGNAL home

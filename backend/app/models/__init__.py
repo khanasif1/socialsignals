@@ -14,7 +14,7 @@ class RawPost(BaseModel):
     original_text: str = Field(min_length=1, max_length=100_000)
     image_urls: list[HttpUrl] = Field(default_factory=list, max_length=10)
     imported_at: datetime
-    source: Literal["linkedin_export"] = "linkedin_export"
+    source: Literal["linkedin_export", "linkedin_crawler"] = "linkedin_export"
 
     @field_validator("url", "author_url")
     @classmethod
@@ -85,17 +85,32 @@ class SyncStatus(BaseModel):
     message: str = "Upload an official LinkedIn export to begin."
 
 
+class CrawlStatus(BaseModel):
+    enabled: bool = False
+    status: Literal["never", "disabled", "running", "completed", "failed", "action_required"] = "never"
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    last_success_at: datetime | None = None
+    extracted: int = 0
+    skipped: int = 0
+    limit_reached: bool = False
+    code: str = "not_configured"
+    message: str = "Background collection is not configured."
+
+
 class IntegrationStatus(BaseModel):
-    mode: Literal["export"] = "export"
+    mode: Literal["export", "crawler"] = "export"
     connected: bool
     oauth_available: bool
     personal_feed_available: Literal[False] = False
     message: str
+    crawler: CrawlStatus = Field(default_factory=CrawlStatus)
 
 
 class Health(BaseModel):
     status: Literal["ok", "degraded"]
     storage: Literal["connected", "unavailable"]
+    worker_image: bool = False
 
 
 class Topic(BaseModel):

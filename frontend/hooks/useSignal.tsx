@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as WebBrowser from 'expo-web-browser';
 import samples from '../assets/posts.json';
@@ -88,10 +89,20 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { if (ready) void run(refresh); }, [ready, refresh, run]);
   useEffect(() => {
-    if (syncStatus.status !== 'running' || demo || !token) return;
+    if (!ready || demo || !token) return;
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void run(refresh);
+    }, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void run(refresh);
+    });
+    return () => { clearInterval(timer); subscription.remove(); };
+  }, [ready, demo, token, refresh, run]);
+  useEffect(() => {
+    if ((syncStatus.status !== 'running' && integration?.crawler?.status !== 'running') || demo || !token) return;
     const timer = setInterval(() => { void run(refresh); }, 4000);
     return () => clearInterval(timer);
-  }, [syncStatus.status, demo, token, refresh, run]);
+  }, [syncStatus.status, integration?.crawler?.status, demo, token, refresh, run]);
   useEffect(() => {
     if (ready && demo) void run(() => AsyncStorage.setItem('signal-demo', JSON.stringify({ posts, preferences })));
   }, [posts, preferences, demo, ready, run]);

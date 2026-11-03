@@ -101,7 +101,7 @@ export function Page({ children, syncAction = false }: { children: React.ReactNo
       {signal.demo && <Text style={{ color: c.muted, fontSize: 11, lineHeight: 18 }}>DEMO CONTENT · All names and posts in this edition are fictional. No LinkedIn feed is connected.</Text>}
     </ScrollView>
     {syncAction && <FAB icon="sync" label={wide ? 'Sync reader' : undefined}
-      accessibilityLabel="Sync LinkedIn exports" loading={signal.syncStatus.status === 'running'}
+      accessibilityLabel="Process imported LinkedIn posts" loading={signal.syncStatus.status === 'running'}
       disabled={signal.syncStatus.status === 'running'} onPress={() => void signal.run(signal.sync)}
       color={c.buttonText} style={{ position: 'absolute', right: wide ? 32 : 20, bottom: 20,
         borderRadius: 20, backgroundColor: c.button }} />}
@@ -187,6 +187,7 @@ export function PostCard({ post, featured = false, index = 0 }: { post: Post; fe
             icon="arrow-top-right" buttonColor={c.onHero} textColor={c.hero}
             contentStyle={{ minHeight: 48 }}>Read the insight</MaterialButton>
           <IconButton icon={post.saved ? 'bookmark' : 'bookmark-outline'} iconColor={c.onHero}
+            style={{ minWidth: 48, minHeight: 48 }}
             accessibilityLabel={post.saved ? 'Remove bookmark' : 'Save post'} accessibilityState={{ selected: post.saved }} onPress={save} size={23} />
         </View>
         <Text style={{ color: c.heroMuted, fontSize: 11 }}>{post.author || 'Author unavailable'} · {readingMinutes(post)} min read</Text>
@@ -222,6 +223,7 @@ export function PostCard({ post, featured = false, index = 0 }: { post: Post; fe
             style={{ backgroundColor: c.accentBg }} labelStyle={{ fontFamily: 'SignalMedium', fontSize: 11 }} />
           <Text style={{ flex: 1, color: c.muted, fontSize: 12 }}>{post.author || 'Author unavailable'}</Text>
           <IconButton icon={post.saved ? 'bookmark' : 'bookmark-outline'} mode={post.saved ? 'contained-tonal' : undefined}
+            style={{ minWidth: 48, minHeight: 48 }}
             iconColor={post.saved ? accent : c.muted} accessibilityState={{ selected: post.saved }}
             accessibilityLabel={post.saved ? 'Remove bookmark' : 'Save post'} onPress={save} size={20} />
         </View>

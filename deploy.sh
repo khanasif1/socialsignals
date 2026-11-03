@@ -12,17 +12,30 @@ if [[ -n "${AZURE_SUBSCRIPTION:-}" ]]; then az account set --subscription "$AZUR
 : "${SIGNAL_LOGIN_SECRET:?Export SIGNAL_LOGIN_SECRET (32+ characters)}"
 : "${SIGNAL_SESSION_SECRET:?Export SIGNAL_SESSION_SECRET (independent 32+ characters)}"
 export RESOURCE_GROUP AZURE_LOCATION APP_SERVICE_SKU APP_NAME STORAGE_ACCOUNT
+SIGNAL_LINKEDIN_CRAWLER_ENABLED="${SIGNAL_LINKEDIN_CRAWLER_ENABLED:-false}"
+SIGNAL_LINKEDIN_CRAWLER_ENABLED="${SIGNAL_LINKEDIN_CRAWLER_ENABLED,,}"
+[[ "$SIGNAL_LINKEDIN_CRAWLER_ENABLED" == true || "$SIGNAL_LINKEDIN_CRAWLER_ENABLED" == false ]] || {
+  echo "SIGNAL_LINKEDIN_CRAWLER_ENABLED must be true or false." >&2; exit 1;
+}
+export SIGNAL_LINKEDIN_CRAWLER_ENABLED
+if [[ "$SIGNAL_LINKEDIN_CRAWLER_ENABLED" == true ]]; then
+  : "${SIGNAL_CONTAINER_IMAGE:?Crawler requires the browser-capable container image}"
+  : "${LINKEDIN_USERNAME_SECRET_URI:?Use a Key Vault secret URI, never a password in deployment arguments}"
+  : "${LINKEDIN_PASSWORD_SECRET_URI:?Use a Key Vault secret URI, never a password in deployment arguments}"
+fi
 python -c 'import os,re; assert len(os.environ["SIGNAL_LOGIN_SECRET"]) >= 32 and len(os.environ["SIGNAL_SESSION_SECRET"]) >= 32; assert os.environ["SIGNAL_LOGIN_SECRET"] != os.environ["SIGNAL_SESSION_SECRET"]; assert re.fullmatch(r"[a-z0-9]{3,24}",os.environ["STORAGE_ACCOUNT"]), "Storage name must be 3-24 lowercase letters/digits"; assert re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{1,33}[A-Za-z0-9]",os.environ["APP_NAME"]), "App name must be 3-35 letters/digits/hyphens"'
 az group create --name "$RESOURCE_GROUP" --location "$AZURE_LOCATION" --only-show-errors --output none
 bash "$ROOT/deployment/deploy-azure.sh"
 bash "$ROOT/deployment/configure-app.sh"
-bash "$ROOT/deployment/deploy-backend.sh"
+if [[ -z "${SIGNAL_CONTAINER_IMAGE:-}" ]]; then
+  bash "$ROOT/deployment/deploy-backend.sh"
+fi
 URL="https://${APP_NAME}.azurewebsites.net"
 APP_ID="$(az webapp show --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" --query id --output tsv)"
 echo "Waiting for backend and Managed Identity propagation..."
 healthy=false
 for _ in $(seq 1 40); do
-  if curl --silent --fail --max-time 20 "$URL/api/health" | python -c 'import json,sys; x=json.load(sys.stdin); assert x["status"]=="ok" and x["storage"]=="connected"' 2>/dev/null; then
+  if curl --silent --fail --max-time 20 "$URL/api/health" | python -c 'import json,os,sys; x=json.load(sys.stdin); assert x["status"]=="ok" and x["storage"]=="connected"; assert not os.environ.get("SIGNAL_CONTAINER_IMAGE") or x.get("worker_image") is True' 2>/dev/null; then
     healthy=true; break
   fi
   # Failed initial Key Vault lookups can be cached even after RBAC propagates.

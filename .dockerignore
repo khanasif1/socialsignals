@@ -1,0 +1,16 @@
+**
+!backend/
+!backend/app/
+!backend/app/**/*.py
+!backend/requirements.txt
+!backend/requirements-crawler.txt
+!backend/startup.sh
+!deployment/
+!deployment/Dockerfile
+!deployment/container-start.sh
+!deployment/webjob/
+!deployment/webjob/run.sh
+!deployment/webjob/settings.job
+!deployment/wheels/
+!deployment/wheels/.gitkeep
+!deployment/wheels/*.whl

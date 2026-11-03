@@ -1,0 +1,42 @@
+appId: com.signal.nativecheck
+---
+- tapOn:
+    text: Search insights
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Search posts
+    timeout: 30000
+- tapOn: Search posts
+- inputText: source recall
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "[01] insights?"
+    direction: DOWN
+    centerElement: true
+- extendedWaitUntil:
+    visible: "Read RAG native background update: measure source recall."
+    timeout: 90000
+- tapOn:
+    text: "Read RAG native background update: measure source recall."
+    index: 0
+- scrollUntilVisible:
+    element:
+      text: "Source image 1 of 1 for RAG native background update: measure source recall."
+    direction: DOWN
+- extendedWaitUntil:
+    notVisible: Loading source image
+    timeout: 15000
+- assertNotVisible: "Source image unavailable.*"
+- takeScreenshot: native-background-update
+- scrollUntilVisible:
+    element:
+      text: THE ORIGINAL POST
+    direction: DOWN
+- assertVisible: "RAG native background update: measure source recall."
+- launchApp
+- tapOn: "Settings, tab, 5 of 5"
+- extendedWaitUntil:
+    visible: Signed in. Your session is stored securely on iOS.
+    timeout: 30000
+- takeScreenshot: native-restored-session
