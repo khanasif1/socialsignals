@@ -433,6 +433,102 @@ processing but does not prevent health checks or reading existing posts.
 The deployment scripts never delete a resource group. Remove paid resources
 manually only after backing up any content you want to keep.
 
+### New container stack with Entra-only Azure OpenAI
+
+`deployment\deploy-cloud.ps1` provides a Windows/PowerShell 7 alternative for a **new**
+isolated container stack. It creates the dedicated resource group, Basic ACR,
+the App Service/Blob/Key Vault resources above, and an Azure OpenAI account with
+`disableLocalAuth=true`. The application uses its managed identity, not an AI
+API key. A dedicated VNet, delegated App Service subnet, two private endpoints,
+and private DNS connect the app to Blob and Key Vault while their public network
+access stays disabled. Networking adds private-endpoint/DNS charges; no NAT
+gateway, VPN gateway, or hosting-tier upgrade is provisioned.
+The regional Standard `gpt-4.1-mini` deployment uses version
+`2025-04-14`, capacity 30. Its currently listed retirement is April 14, 2027;
+plan a model migration before retirement. Confirm regional availability and quota
+for your subscription rather than assuming this model is available everywhere.
+
+Requires a running Linux Docker engine and Azure CLI/Bicep. Docker builds the
+allowlisted context locally and pushes through Entra-authenticated `az acr login`;
+the registry's admin account remains disabled. This avoids Azure CLI's Windows
+long-path failure while scanning frontend dependencies for an ACR Tasks upload.
+
+```powershell
+$target = @{
+  SubscriptionId = '<approved-subscription-id>'
+  ResourceGroup = '<new-resource-group>'
+  AppName = '<globally-unique-web-app-name>'
+  StorageAccount = '<globallyuniquelowercaselettersanddigits>'
+  Location = 'australiaeast'
+  ImageTag = '<immutable-version>'
+}
+.\deployment\deploy-cloud.ps1 -Action Prepare @target
+.\deployment\deploy-cloud.ps1 -Action Validate @target
+# Complete azure-validate and its deployment-plan proof before Deploy.
+.\deployment\deploy-cloud.ps1 -Action Deploy @target
+```
+
+Prepare generates independent reader/session secrets under ignored
+`.azure\private\<subscription-id>` with owner-only access. Reuse that protected
+state and the same target on repeat deployments; never display or commit it.
+Deploy refuses an unvalidated plan, builds/publishes the image, restarts the app,
+and requires container-aware managed-identity Blob health. Collection stays off.
+The deployment outputs file records nonsecret endpoint/resource names.
+
+For a repeatable **live storage and AI** smoke test:
+
+```powershell
+backend\.venv\Scripts\python deployment\test-cloud.py `
+  --parameters .azure\private\<subscription-id>\<app>.parameters.json `
+  --outputs .azure\private\<subscription-id>\<app>.outputs.json `
+  --report .azure\private\<subscription-id>\<app>.smoke.json
+```
+
+This makes real Azure OpenAI calls and retains one clearly labeled synthetic
+sample, including its bookmark/read state and explanation. It checks private
+authentication, canonical import, processing, original-text preservation, search,
+and persisted read/bookmark behavior. It never uses LinkedIn credentials and is
+**not** evidence of live LinkedIn extraction. Reader secrets and session tokens
+are read internally, never printed in its report.
+
+`frontend\e2e\cloud.spec.ts` is an opt-in live UI check for both iPhone 13 Pro Max
+orientations. It uses `SIGNAL_CLOUD_PARAMETERS` for the protected parameter path
+and `SIGNAL_E2E_URL` for your web preview. Export the preview with the actual
+`EXPO_PUBLIC_API_URL` and `expo export --clear`: Metro can otherwise reuse an old
+inlined test endpoint. Temporarily allow only that preview origin in backend CORS,
+then restore the empty production CORS list. The test logs in through the real
+API, keeps the token only in its browser session, checks saved/read restoration,
+and revokes its session afterward. It never types a production passphrase into
+a page, so failure snapshots cannot capture it.
+
+To configure the crawler **after rotating any password previously shared in
+chat**, run the interactive helper locally:
+
+```powershell
+backend\.venv\Scripts\python deployment\configure-crawler.py `
+  --subscription <approved-subscription-id> --resource-group <resource-group> `
+  --outputs .azure\private\<subscription-id>\<app>.outputs.json
+```
+
+It prompts for credentials without command-line password arguments or local
+credential files. Azure Resource Manager writes them into the private Key Vault;
+your workstation does not need access to its private data endpoint. The app gets
+Key Vault references only. The helper requires an explicit `ENABLE`, resolved
+credential references, and worker/storage health before turning on collection.
+If verification fails, the schedule stays disabled. It does not test LinkedIn
+login or bypass account challenges. Full-stack redeployment deliberately disables
+collection again; configure/verify it explicitly after that operation.
+
+Live rollout verification (November 3, 2026): the Australia East deployment's
+[API health](https://signal-aue-957858fe.azurewebsites.net/api/health) passed,
+as did actual Entra-authenticated model processing, private Blob persistence,
+search, saved/read state, and explanations. Both iPhone-sized WebKit orientations
+passed against that API. The actual Azure WebJob completed run
+`202611030819040026` successfully with collection disabled. The sample is synthetic;
+real LinkedIn login/extraction and physical iPhone installation remain unverified.
+Production CORS is empty, both AI key settings are empty, and collection/scheduling
+remain disabled until rotated credentials are configured securely.
+
 ### Browser-capable App Service WebJob
 
 The stock Python ZIP runtime is **not** assumed to have Chromium/native
@@ -465,7 +561,10 @@ TLS verification to work around a proxy or certificate issue.
 `uvloop` is explicit because a Windows host's pip otherwise skips the Linux-only
 conditional dependency even when downloading Linux wheels.
 
-First deploy the ordinary backend/infrastructure as above. In its Key Vault,
+For an existing ZIP app, first deploy the ordinary backend/infrastructure above.
+For the private container stack, use `configure-crawler.py` above instead; do not
+reopen its vault's public network access to configure credentials. In an
+accessible existing vault,
 securely create separate secrets for the LinkedIn username and password. Use
 Azure Portal's secret editor or your approved secret-management process, not
 command-line password arguments. The App Service identity needs access to those
@@ -498,7 +597,10 @@ The versioned `deployment/webjob/settings.job` schedules collection at **06:00
 UTC daily**. Change that file and rebuild to change the schedule. The container
 publishes `run.sh` and `settings.job` under the required persisted
 `/home/site/wwwroot/App_Data/jobs/triggered/linkedin-crawler` directory at startup.
-Keep `WEBSITES_ENABLE_APP_SERVICE_STORAGE=true`. On staging slots keep
+Keep `WEBSITES_ENABLE_APP_SERVICE_STORAGE=true`.
+`WEBSITE_SKIP_RUNNING_KUDUAGENT=false` is also required for Linux WebJobs;
+the Bicep template and container-upgrade script set it explicitly.
+On staging slots keep
 `WEBJOBS_DISABLE_SCHEDULE=1` and collection disabled; do not run two account
 collectors. See [WebJobs execution](https://learn.microsoft.com/en-us/azure/app-service/webjobs-execution).
 

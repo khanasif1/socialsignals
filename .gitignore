@@ -20,3 +20,5 @@ deployment-result.json
 deployment/wheels/*
 !deployment/wheels/.gitkeep
 .azure/validate-status.json
+.azure/private/
+.azure/cloud-preview/

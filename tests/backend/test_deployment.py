@@ -76,6 +76,7 @@ def test_container_deployment_enables_only_after_worker_health(deployment):
     enabled = calls.index("SIGNAL_LINKEDIN_CRAWLER_ENABLED=true")
     assert disabled < image < enabled
     assert "SIGNAL_LINKEDIN_CRAWLER_PASSWORD=@Microsoft.KeyVault(" in calls
+    assert "WEBSITE_SKIP_RUNNING_KUDUAGENT=false" in calls
     assert "role\tassignment\tcreate" not in calls
 
 

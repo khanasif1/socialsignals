@@ -106,6 +106,30 @@ def test_managed_identity_blob_writes_are_leased(monkeypatch, tmp_path):
     store.close()
 
 
+def test_azure_ai_uses_entra_without_api_keys(monkeypatch):
+    credential = MagicMock()
+    credential_factory = MagicMock(return_value=credential)
+    provider = MagicMock(return_value="test-entra-token")
+    provider_factory = MagicMock(return_value=provider)
+    client_factory = MagicMock()
+    monkeypatch.setattr("azure.identity.DefaultAzureCredential", credential_factory)
+    monkeypatch.setattr("azure.identity.get_bearer_token_provider", provider_factory)
+    monkeypatch.setattr("app.services.ai.AzureOpenAI", client_factory)
+    settings = Settings(
+        _env_file=None, login_secret="test-login-passphrase-with-32-characters",
+        session_secret="independent-test-secret-with-32-characters",
+        ai_provider="azure", azure_openai_endpoint="https://fixture.openai.azure.com/",
+        azure_openai_deployment="gpt-4.1-mini",
+    )
+    ai = Intelligence(settings)
+    provider_factory.assert_called_once_with(credential, "https://cognitiveservices.azure.com/.default")
+    assert client_factory.call_args.kwargs["azure_ad_token_provider"] is provider
+    assert "api_key" not in client_factory.call_args.kwargs
+    assert ai.model == "gpt-4.1-mini"
+    ai.close()
+    credential.close.assert_called_once()
+
+
 def test_batch_resume_and_semantic_deduplication(application, client, auth, post_data):
     prefs = client.get("/api/settings", headers=auth).json()
     prefs["max_posts_per_sync"] = 1

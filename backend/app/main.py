@@ -264,8 +264,9 @@ def create_app(settings: Settings | None = None, store: JsonStore | None = None,
         key = f"configuration/explanations/{id}.json"
         cached = app.state.store.read(key)
         if cached:
-            return Explanation.model_validate(cached)
+            return Explanation.model_validate({**cached, "generated": True})
         result = app.state.ai.explain(post)
+        result.generated = True
         with app.state.store.writer():
             app.state.store.write(key, result.model_dump(mode="json"))
         return result

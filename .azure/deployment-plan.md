@@ -1,10 +1,14 @@
 # Background extraction and iPhone verification
 
-Status: Ready for Validation
+Status: Validated
 
-Local implementation and verification are complete. Azure target confirmation,
-cloud validation, live credentials, and physical-device verification remain
-blocked; this status is not a claim that Azure validation passed.
+Local implementation and simulator verification are complete. The user has
+approved Azure resource creation in Australia East in the selected subscription.
+Cloud quota, policy, permissions, Entra-only AI configuration, and deployment
+validation passed. The application is deployed and live storage/AI/reader
+verification passed. The tenant keeps Storage and Key Vault
+public endpoints disabled, so the rollout must use private service connectivity.
+Do not try to override that restriction.
 
 ## Scope
 
@@ -25,8 +29,12 @@ blocked; this status is not a claim that Azure validation passed.
 ## Architecture
 
 The user directed autonomous implementation after the initial planning pause.
-The worker and opt-in deployment artifacts are implemented. That direction did
-not identify an approved Azure subscription or supply account credentials.
+The worker and opt-in deployment artifacts are implemented. The user approved
+the selected subscription, Australia East, and provisioning an
+Azure OpenAI resource with Entra ID authentication only; API keys are blocked.
+No budget cap was specified. Use conservative single-instance hosting and a
+bounded AI deployment rather than interpreting this as unlimited capacity.
+Production credentials belong in Key Vault, never this plan or Git.
 
 The existing application uses Azure CLI and Bicep, a Linux Python 3.12 App
 Service B1 with Always On, private Blob JSON storage, Key Vault references,
@@ -86,13 +94,56 @@ References consulted:
 
 ## Azure context
 
-Subscription: Not confirmed.
-Region: Not confirmed.
-Resource group and budget: Not confirmed.
+Subscription: User-approved target (identifier retained only in protected local state).
+Region: Australia East (`australiaeast`, user approved).
+Resource group: Dedicated `rg-signal-aue`, provisioned in the approved subscription.
+Budget: No cap specified; preserve conservative resource sizes.
+AI: New Azure OpenAI resource; Entra ID only, local/key authentication disabled.
 
-The signed-in Azure CLI account is not approval to deploy personal account
-credentials or data to that subscription. The subscription question was not
-answered because the user was unavailable. No resources were created.
+### Approved rollout
+
+The user's resource-creation request and explicit subscription/region selection
+approve the previously presented dedicated-resource-group architecture, including
+the requested new AI resource. Do not modify unrelated existing resources.
+
+- New resource group `rg-signal-aue`, in the approved subscription only.
+- One Linux B1 App Service plan and one containerized SIGNAL application.
+- One Standard LRS storage account with private Blob container and shared keys
+  disabled; one RBAC Key Vault with purge protection.
+- One Basic container registry with admin and anonymous access disabled.
+- One OpenAI S0 account with local authentication disabled, and one regional
+  Standard `gpt-4.1-mini` deployment, version `2025-04-14`, capacity 30 (30K TPM).
+  Unlike GlobalStandard, this deployment does not select global processing.
+- Scope the application's managed-identity roles to its Blob container,
+  Key Vault, registry (AcrPull), and OpenAI account (OpenAI User).
+- Required network adaptation within the same dedicated group: one VNet with
+  separate delegated App Service and private-endpoint subnets, two private
+  endpoints (Blob and Key Vault), and their private DNS zones/links. Preserve
+  disabled public access and all existing identity restrictions. Basic B1 supports
+  outbound VNet integration; no hosting-tier upgrade or public inbound app
+  restriction is required. The user authorized resource creation and end-to-end
+  deployment with no stated budget cap. An additional networking question could
+  not be answered because the user was unavailable; use only the minimum
+  connectivity required by the observed subscription restriction.
+- Use subscription-scope validation/what-if so the dedicated resource group
+  need not be created before validation. Build and push with the verified Linux
+  Docker engine and Entra-authenticated ACR login; the context is allowlisted.
+  ACR Tasks upload failed on Windows while traversing long frontend paths.
+- Keep collection disabled until Key Vault credentials resolve. Generate
+  independent reader/session secrets into protected local deployment state,
+  never print secrets, and reuse them on redeployment.
+- Test live managed-identity Blob access and Entra-authenticated model processing
+  before attempting an authorized account crawl. Account challenges still pause.
+
+Read-only preflight confirmed ARM access, wildcard management permissions,
+Australia East Linux B1 availability, the OpenAI User role definition, and
+5,000 units of unallocated regional Standard gpt-4.1-mini quota. The CLI quota
+workflow returned App Service limit 14 with usage 0. No capacity increase is
+needed. Model retirement is currently listed as April 14, 2027; migration
+must be planned before that date.
+
+The explicit subscription and region approval supersedes the earlier blocked
+subscription selection. Infrastructure was provisioned after successful validation.
 The installed Docker Desktop was started and its Linux engine verified.
 The actual Linux amd64 image was built and run, including Chromium as UID
 10001, API health/startup, and the published WebJob entry point.
@@ -143,26 +194,129 @@ Completed locally without real LinkedIn credentials or Azure resource changes:
 - Screenshots and browser report are in ignored frontend test-output directories.
   The earlier manual iframe and demo-storage changes were removed/restored.
 
-Pending: approved Azure context/capacity/permissions, registry publication and
-deployment, actual Kudu schedule execution, managed-identity Blob integration,
-Key Vault resolution, live AI processing, approved account login and unattended
-collection, and installation/testing on a physical iPhone. Native simulator
+Pending: approved account login and unattended live LinkedIn collection, plus
+installation/testing on a physical iPhone. The actual Azure WebJob was manually
+executed successfully while collection remained disabled; the daily schedule
+is intentionally disabled pending rotated Key Vault credentials. Native simulator
 verification does not prove physical-device behavior. Account challenges are never
 bypassed; live LinkedIn DOM compatibility and account acceptance are unverified.
 
 ## Validation proof
 
-Recipe: Azure CLI wrappers with the existing Bicep template at
-`infrastructure/main.bicep`; preserve this repository layout.
+Recipe: Azure CLI with subscription-scope `infrastructure/bootstrap.bicep`,
+which creates the isolated resource group and calls the existing
+`infrastructure/main.bicep`. `deployment/deploy-cloud.ps1` provides Prepare,
+Validate, and guarded Deploy actions; protected parameters are ignored by Git.
 
-- [ ] All validation checks pass
-  - [ ] 1. Core Validation (CLI, auth, build, validate, what-if) - run the azure-validate `validate-deployment` script with the approved subscription, target resource group, and this template.
+- [x] All validation checks pass
+  - [x] 1. Core Validation (CLI, auth, build, validate, what-if) - bootstrap/main compiled; subscription validation and what-if passed against the approved target.
   - [x] 2. Docker Build (if containerized) - actual Linux amd64 image built and runtime tested.
-  - [ ] 3. Azure Policy Validation
+  - [x] 3. Azure Policy Validation - assigned policy sets reviewed through Azure CLI; ARM validation passed with no policy denial. Entra-only AI and storage authentication are enforced independently.
 
-Local build and functional proof is recorded above. Azure validation has not
-passed and no cloud deployment has been executed. The azure-validate workflow
-loaded the plan and recorded the recipe checklist, but its core target-scope
-validation, what-if, policy, and role checks remain blocked. The subscription
-question was asked again after local completion; the user was unavailable.
-Do not substitute the active work subscription or mark this plan Validated.
+The azure-validate recipe's `validate-deployment.ps1` completed all five checks
+using scope `sub`, location `australiaeast`, the approved subscription,
+`infrastructure/bootstrap.bicep`, and the protected parameter file.
+The initial what-if reported Create: 17, Modify: 0, Delete: 0. No pre-existing
+resource changes were proposed. Validation timestamp: November 3, 2026.
+
+After provisioning, Key Vault and Storage reported publicNetworkAccess Disabled
+when the property was omitted, preventing the approved authenticated-public-
+endpoint architecture from working. Both now explicitly request Enabled while
+retaining RBAC, Entra-only storage, TLS, and private Blob contents. The corrected
+template passed all five core checks again; the resource-ID-only preview targets
+only this dedicated group. The helper's detailed create/modify/delete counts
+include property deltas and are not counts of resource deletions. The deployment
+is incremental, not complete. No policy deny was bypassed or exception granted.
+
+The public-access correction did not persist: both services again reported
+Disabled. It is not a working fix and has been replaced by private connectivity
+in `infrastructure/private-network.bicep`. Bootstrap enables it; legacy main
+template consumers retain an opt-in switch. The new template compiles and
+Microsoft.Network is registered. Repeat target-scope validation before deploying.
+
+Private-network revision validation on November 3, 2026: all five core checks
+passed, including subscription ARM validation and what-if. The model/container
+runtime is unchanged and the published Linux amd64 image digest is
+`sha256:d8cc8313dab047abea6eb4f97fd518b32414462561daf6b5b4c83ea1970a3e41`.
+The four data-plane roles remain unchanged; private-endpoint connections do not
+grant the app any new identity permissions. No subscription policy denial was
+reported for the private network resources.
+
+The private endpoints were provisioned with Approved connections; both Key Vault
+references resolved and the actual container passed managed-identity Blob health.
+The first live AI run exposed a provenance bug: structured output could set
+`Explanation.generated=false`. The API now controls this metadata for newly
+generated and previously cached explanations. Thirty targeted backend/API/
+deployment tests passed. Release `20261103-entra-1` built as Linux amd64 image
+`sha256:5ee0795dc456aa45c9215e22315fecdd362f62d6f4f28a2ee264fb7d1b787aab`.
+The complete five-check target-scope validation passed again for this release.
+
+Real cloud API verification passed: original-text-preserving import, Entra-
+authenticated structured model processing, private Blob persistence, search,
+bookmarks/read state, and generated explanations. The single retained sample is
+explicitly synthetic, has no source URL, and is not a LinkedIn crawl.
+Both portrait/landscape live-cloud WebKit reader checks passed, including reload
+restoration of saved/read state. Metro required a cleared export cache to replace
+the previous fixture API endpoint.
+
+The actual Kudu WebJobs API initially rejected execution because its Linux agent
+was not enabled. Microsoft's WebJobs tutorial requires
+`WEBSITE_SKIP_RUNNING_KUDUAGENT=false`; this is now present in Bicep and the
+existing-app upgrade script. All five core checks passed for the correction and
+34 targeted backend/deployment tests passed. Runtime worker image and scoped
+identity roles are unchanged.
+
+## Live deployment result
+
+Deployment completed in the dedicated Australia East group `rg-signal-aue`.
+
+- API: https://signal-aue-957858fe.azurewebsites.net
+- Health: https://signal-aue-957858fe.azurewebsites.net/api/health
+- Storage: `sig957858feaue`, private `signal-data` Blob container, shared keys
+  and public network access disabled.
+- Key Vault: `sig-l5smxkxbdrtja`, RBAC enabled, public network access disabled.
+- Private Blob/vault endpoints: Succeeded, both connections Approved; app
+  VNet integration and both Key Vault references verified.
+- Registry: `sigl5smxkxbdrtja`, admin disabled. Published release
+  `signal-worker:20261103-entra-1`, digest
+  `sha256:1e05842322b855c6aa5a95ef36b0dd9e6faffb8bff9bd2c58a815416fd4f38ec`.
+- AI account: `signal-aue-957858fe-ai`, local authentication disabled, both
+  application AI-key settings empty. Regional model deployment Succeeded.
+- Live RBAC verification confirmed the app identity's four resource-scoped
+  data-plane roles: Blob Data Contributor, Key Vault Secrets User, AcrPull,
+  and Cognitive Services OpenAI User.
+- Live API report: storage connected, worker image true, LLM processing,
+  preserved original text, search, saved/read persistence, and generated
+  explanations all passed. One explicitly labeled synthetic sample is retained.
+- Actual Kudu-triggered WebJob run `202611030819040026`: Success, with collection
+  disabled. This proves Azure job execution, not authenticated LinkedIn extraction.
+- Live-cloud iPhone 13 Pro Max WebKit: portrait and landscape passed. These are
+  browser checks, distinct from the earlier actual native simulator runs.
+- Final settings: production CORS restored to `[]`, crawler disabled, daily
+  schedule disabled, Linux Kudu agent enabled. Temporary preview/export/log
+  helpers were stopped and removed. Protected deployment state remains local.
+
+User action still required: rotate the password disclosed in chat and run the
+interactive `deployment/configure-crawler.py` helper to put its replacement in
+Key Vault. It verifies references and health before enabling collection. No real
+LinkedIn login was attempted, no disclosed credential was used, and no account
+challenge will be bypassed. Apple signing and physical-device access remain
+separate prerequisites.
+
+`docker build --quiet --tag signal-crawler:cloud-validated --file deployment/Dockerfile .`
+passed against the Linux engine, producing image
+`sha256:9f917fadaad85285dd84b6d331c20a41457e54e48962cde8cb4bb181853c63d1`.
+The nine backend integration tests, including the Entra-without-keys constructor
+test, passed. Previous complete container and native proof remains recorded above.
+
+## Role Assignment Verification
+
+Status: Verified (static infrastructure and application operation review).
+The sole service identity is the web application's system-assigned identity.
+Its Storage Blob Data Contributor role is scoped to the private container
+(JSON reads/writes, listing, properties, and leases); Key Vault Secrets User is
+scoped to the dedicated vault; AcrPull to the new registry; Cognitive Services
+OpenAI User to the new Entra-only account. No application role is subscription-
+or resource-group-scoped. Local user data-plane roles are not needed for the
+planned authenticated API smoke test, which exercises the application's identity.
+Actual provisioned roles and runtime access must still be checked after deployment.

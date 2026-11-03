@@ -75,6 +75,20 @@ def test_duplicate_export_is_idempotent(client, auth, post_data):
     assert client.get("/api/statistics", headers=auth).json()["total_posts"] == 1
 
 
+def test_explanation_provenance_is_server_controlled(application, client, auth, post_data, monkeypatch):
+    post = ingest(client, auth, post_data)
+    original = application.state.ai.explain
+    monkeypatch.setattr(application.state.ai, "explain", lambda post: original(post).model_copy(update={"generated": False}))
+    url = f"/api/posts/{post['id']}/explain"
+    assert client.post(url, headers=auth).json()["generated"] is True
+    key = f"configuration/explanations/{post['id']}.json"
+    cached = application.state.store.read(key)
+    assert cached["generated"] is True
+    with application.state.store.writer():
+        application.state.store.write(key, {**cached, "generated": False})
+    assert client.post(url, headers=auth).json()["generated"] is True
+
+
 def test_retention_preserves_saved_content(application, client, auth, post_data):
     post_data = {**post_data, "image_urls": ["https://media.licdn.com/dms/image/example.jpg"]}
     post = ingest(client, auth, post_data)
