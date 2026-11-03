@@ -84,7 +84,7 @@ jobs:
           echo "::add-mask::$key"
           export AZURITE_ACCOUNTS="signaltest:$key"
           export SIGNAL_TEST_AZURITE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=signaltest;AccountKey=$key;BlobEndpoint=http://127.0.0.1:10000/signaltest;"
-          "$azurite" --silent --location "$RUNNER_TEMP/azurite" --blobHost 127.0.0.1 --blobPort 10000 > "$RUNNER_TEMP/native-output/azurite.log" 2>&1 &
+          "$azurite" --silent --location "$RUNNER_TEMP/azurite" --blobHost 127.0.0.1 --blobPort 10000 --skipApiVersionCheck > "$RUNNER_TEMP/native-output/azurite.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/azurite.pid"
           for attempt in {1..30}; do
             if nc -z 127.0.0.1 10000; then break; fi
@@ -94,14 +94,14 @@ jobs:
           python tests/backend/native_fixture.py serve "$RUNNER_TEMP/native-tls" > "$RUNNER_TEMP/native-output/api.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/native-api.pid"
           for attempt in {1..60}; do
-            if curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" https://localhost:8443/health; then break; fi
+            if curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" https://localhost:8443/api/health; then break; fi
             if ! kill -0 "$(cat "$RUNNER_TEMP/native-api.pid")"; then
               cat "$RUNNER_TEMP/native-output/api.log"
               exit 1
             fi
             sleep 1
           done
-          curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" https://localhost:8443/health
+          curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" https://localhost:8443/api/health
       - name: Test native login, image, original text, bookmarks and read state
         run: |
           maestro --device "$SIMULATOR_UDID" test -e "SCREENSHOT_DIR=$RUNNER_TEMP/native-output" \
