@@ -1,7 +1,7 @@
 # SIGNAL
 
 A private, iOS-first LinkedIn intelligence reader. Expo / React Native, FastAPI,
-and private Azure Blob JSON files. No database, news sources, scraping, analytics,
+and private Azure Blob JSON files. No database, news sources, analytics,
 advertising, or social features.
 
 The interface uses Material 3 components from React Native Paper: elevated,
@@ -20,8 +20,9 @@ content and original decorative article illustrations. Font license notices
 are included in `frontend/assets/fonts/`.
 
 **Important:** LinkedIn identity sign-in is not home-feed access. SIGNAL imports
-official LinkedIn exports. It does not retrieve your network feed with standard
-LinkedIn permissions. Demo posts and authors are explicitly fictional.
+official LinkedIn exports and includes an **opt-in background browser worker**.
+Standard LinkedIn permissions do not grant network-feed access; the worker is
+not an official API integration. Demo posts and authors are explicitly fictional.
 
 ## Project structure
 
@@ -46,14 +47,16 @@ backend/
     models/                 Pydantic request/response/AI schemas
     services/
       reader.py             Ingestion, recommendations, bookmarks, retention
-      linkedin/             Authorized CSV/JSON/ZIP export adapter
+      linkedin/             Export adapter and bounded Playwright browser collector
       ai/                   Azure OpenAI and OpenAI structured output
       storage/              Atomic local JSON and Managed Identity Blob storage
     utils/                  Authenticated, size-bounded multipart handling
+    worker.py               Single background collection/processing run
   requirements.txt
+  requirements-crawler.txt   Optional browser worker dependencies
   startup.sh
 infrastructure/             Bicep resources and nonsecret parameter example
-deployment/                 Infrastructure, App Service config and ZIP deployment
+deployment/                 Infrastructure, ZIP/container deployment, scheduled WebJob
 scripts/                    Local setup, backend packaging, EAS and Drive upload
 tests/
   backend/
@@ -156,8 +159,10 @@ Loading states, unavailable/expired-link notices, and retry actions are built in
 Image links are preserved in raw records, processed posts, and saved snapshots.
 Reimporting the same post with images adds or refreshes its image links without
 duplicating the post or rerunning AI analysis; text-only reimports preserve
-existing links. The backend does not fetch image links, scrape post pages, or
-send image URLs to the AI provider. The device loads images directly from their
+existing links. The export adapter does not fetch image links or post pages.
+The optional browser collector loads LinkedIn normally to extract visible post
+text and image links. Neither path sends image URLs to the AI provider.
+The device loads images directly from their
 source hosts (web requests omit the page referrer), so those hosts can observe
 the image request. LinkedIn export ZIP attachments are not extracted or hosted.
 Saving a post preserves its links, not a permanent offline copy of remote
@@ -196,12 +201,80 @@ Official references (consult current entitlements in your developer portal):
 - [Posts API and permissions](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api)
 - [LinkedIn data portability](https://learn.microsoft.com/en-us/linkedin/dma/)
 
+## Background LinkedIn collection
+
+The implementation is in `backend/app/services/linkedin/crawler.py`; the
+background entry point is `python -m app.worker`. It uses normal Playwright
+Chromium login and visible feed cards, not undocumented API calls, stealth
+plugins, proxy rotation, or CAPTCHA/MFA bypasses.
+
+**Account risk:** LinkedIn's [User Agreement, section 8.2](https://www.linkedin.com/legal/user-agreement)
+prohibits unauthorized automated access and scraping. Your login does not itself
+grant permission to automate collection of other members' content. Use this only
+with the necessary authorization; automation can restrict your account. The
+worker is best effort, not a way to enumerate every relevant post in a ranked,
+personalized feed.
+
+For local use, install the additional dependencies:
+
+```powershell
+backend\.venv\Scripts\python -m pip install -r backend\requirements-crawler.txt
+backend\.venv\Scripts\python -m playwright install chromium
+Set-Location backend
+.\.venv\Scripts\python -m app.worker
+```
+
+In the private, ignored **`backend/.env`**, configure
+`SIGNAL_LINKEDIN_CRAWLER_ENABLED=true`, `SIGNAL_LINKEDIN_CRAWLER_USERNAME`, and
+`SIGNAL_LINKEDIN_CRAWLER_PASSWORD`, plus the existing storage and AI settings.
+These are your LinkedIn credentials, **not** `SIGNAL_LOGIN_SECRET`, which remains
+the app's independent backend passphrase. Never put LinkedIn credentials in the
+frontend, Git, Docker build arguments, screenshots, or command-line arguments.
+On Azure, use Key Vault references instead of plaintext configuration.
+
+Default limits are 100 unique posts, 20 scrolls, and a 180-second collection
+budget. `SIGNAL_LINKEDIN_CRAWLER_MAX_POSTS`, `_MAX_SCROLLS`, and `_MAX_SECONDS`
+adjust those bounds. A currently running browser/navigation call can finish
+after the budget expires, subject to its own timeout. The worker then processes
+up to `_MAX_PROCESSING_BATCHES` (default 20), with a separate
+`_PROCESSING_MAX_SECONDS` budget (default 600) checked between AI calls.
+In-flight provider requests retain their normal timeout/retry bounds. Pending
+work remains visible and is retained for later processing, subject to retention.
+
+The worker takes a separate renewable crawl lease, so a long browser run does
+not hold the reader's global writer lock. It imports through `Reader.import_posts`
+to write raw JSON and deduplication metadata, then runs the existing AI/relevance
+pipeline even if the app's import-processing frequency is `manual`. Original
+text, provenance (`linkedin_crawler`), and source-image links reach the same
+processed JSON and API used by iOS. The live app refreshes on foreground entry
+and every minute while active; no app-open requirement exists for collection.
+
+`GET /api/linkedin/status` and Settings expose the sanitized worker status,
+last successful collection, count, skipped cards, and run-limit indicator.
+Missing AI/credentials, rejected login, or an account challenge produces
+`action_required`. Subsequent scheduled runs do **not** keep retrying login.
+After securely resolving the issue, explicitly run:
+
+```powershell
+Set-Location backend
+.\.venv\Scripts\python -m app.worker --resume
+```
+
+The worker uses ephemeral browser sessions and stores no cookies or passwords
+in Blob. An account requiring interactive verification on every new session
+cannot run unattended with this mode. Browser debugging (`DEBUG`/`PWDEBUG`) is
+rejected to avoid logging credentials. Unexpected browser exceptions record
+only their type, never page HTML, form values, or exception traces. Markup or
+language changes can require a selector update; unsupported cards are counted,
+and a wholly unsupported feed fails visibly.
+
 ## AI configuration
 
 SIGNAL never labels heuristic text as an AI response. With `SIGNAL_AI_PROVIDER=none`
 you can run the demo and use existing posts, but live processing/explanations
 require a configured model. Imported text is sent **only** to the configured
-OpenAI/Azure OpenAI deployment when you sync or request an explanation.
+OpenAI/Azure OpenAI deployment when you sync, the background worker processes
+collected posts, or you request an explanation.
 
 For OpenAI, set in `backend/.env`:
 
@@ -264,9 +337,11 @@ linkedin/raw/YYYY-MM-DD/<import-id>.json
 linkedin/processed/YYYY-MM-DD/<stable-content-id>.json
 metadata/ingestion-state.json
 metadata/last-sync.json
+metadata/last-crawl.json
 metadata/read-state.json
 metadata/statistics.json
 metadata/writer-lock.json
+metadata/crawler-lock.json
 bookmarks/bookmarks.json
 configuration/preferences.json
 configuration/sessions.json
@@ -292,8 +367,9 @@ Multi-document ingestion is checkpointed and retry-safe, not a database transact
 Deploy **one worker** initially. Scheduled maintenance runs every minute and uses
 the same distributed writer lease to prevent concurrent processing across
 instances. An abandoned sync reservation can be retried after two minutes.
-Hourly/daily schedules process already uploaded exports; they cannot fetch a
-LinkedIn feed. Retention also runs when automatic sync is manual.
+The app's hourly/daily preferences process imported records, not browser
+collection. The WebJob has its own schedule. Retention also runs when automatic
+import processing is manual.
 
 ## Azure deployment
 
@@ -356,6 +432,83 @@ RBAC can take several minutes to propagate. A missing AI provider prevents
 processing but does not prevent health checks or reading existing posts.
 The deployment scripts never delete a resource group. Remove paid resources
 manually only after backing up any content you want to keep.
+
+### Browser-capable App Service WebJob
+
+The stock Python ZIP runtime is **not** assumed to have Chromium/native
+dependencies. `deployment/Dockerfile` uses the official matching Playwright
+Python 1.64.1 Ubuntu image, installs the app, and smoke-tests Chromium as the
+non-root runtime user during the build. The API and WebJob share this opt-in
+container and the existing private Blob store. The existing ZIP deployment
+remains the default; no extra worker plan is provisioned automatically.
+
+Build and push on a host with a running Linux Docker engine:
+
+```powershell
+docker build --platform linux/amd64 -f deployment\Dockerfile -t <registry>/signal:<version> .
+docker push <registry>/signal:<version>
+```
+
+If the container's network cannot establish a trusted PyPI connection, download
+the Linux/Python 3.12 wheels through your host's approved HTTPS connection first:
+
+```powershell
+backend\.venv\Scripts\python -m pip download --only-binary=:all: --platform manylinux_2_28_x86_64 --platform manylinux2014_x86_64 --platform manylinux_2_17_x86_64 --platform manylinux1_x86_64 --python-version 3.12 --implementation cp --abi cp312 --dest deployment\wheels -r backend\requirements-crawler.txt "uvloop>=0.14.0,!=0.15.0,!=0.15.1"
+```
+
+Re-run the same Docker build command. A populated `deployment/wheels` makes
+dependency installation offline and fail closed if a dependency is missing;
+an empty folder uses normal PyPI installation. Wheels are Git-ignored and
+mounted only during the dependency build step, not copied into image layers.
+Use a fresh complete wheel set after changing dependency versions. Never disable
+TLS verification to work around a proxy or certificate issue.
+`uvloop` is explicit because a Windows host's pip otherwise skips the Linux-only
+conditional dependency even when downloading Linux wheels.
+
+First deploy the ordinary backend/infrastructure as above. In its Key Vault,
+securely create separate secrets for the LinkedIn username and password. Use
+Azure Portal's secret editor or your approved secret-management process, not
+command-line password arguments. The App Service identity needs access to those
+secrets; its existing vault-scoped Secrets User role covers its own vault.
+
+Then, in Git Bash, set the explicitly selected subscription and existing app:
+
+```bash
+export AZURE_SUBSCRIPTION="<approved-subscription-id>"
+export RESOURCE_GROUP="<existing-resource-group>"
+export APP_NAME="<existing-app-name>"
+export SIGNAL_CONTAINER_IMAGE="<registry>/signal:<version>"
+export LINKEDIN_USERNAME_SECRET_URI="https://<vault>.vault.azure.net/secrets/<username-secret>/"
+export LINKEDIN_PASSWORD_SECRET_URI="https://<vault>.vault.azure.net/secrets/<password-secret>/"
+# For private ACR, also set its full resource ID. The script grants the app AcrPull.
+export CONTAINER_REGISTRY_RESOURCE_ID="/subscriptions/<id>/resourceGroups/<group>/providers/Microsoft.ContainerRegistry/registries/<registry>"
+bash ./deployment/deploy-crawler.sh
+```
+
+This is an explicit upgrade of that existing app to a custom container. The
+script disables collection while switching images, keeps Always On and private
+Blob configuration, configures Key Vault references, and waits for health from
+the worker-capable image before enabling the schedule. A healthy API is **not**
+proof of successful login or extraction; verify the first WebJob run and the
+authenticated integration/sync status. The portal's WebJobs page can trigger a
+first run immediately. Resume an action-required job from the authenticated
+container console with `python -m app.worker --resume`.
+
+The versioned `deployment/webjob/settings.job` schedules collection at **06:00
+UTC daily**. Change that file and rebuild to change the schedule. The container
+publishes `run.sh` and `settings.job` under the required persisted
+`/home/site/wwwroot/App_Data/jobs/triggered/linkedin-crawler` directory at startup.
+Keep `WEBSITES_ENABLE_APP_SERVICE_STORAGE=true`. On staging slots keep
+`WEBJOBS_DISABLE_SCHEDULE=1` and collection disabled; do not run two account
+collectors. See [WebJobs execution](https://learn.microsoft.com/en-us/azure/app-service/webjobs-execution).
+
+For later full Bicep redeployments, preserve `SIGNAL_CONTAINER_IMAGE`, the two
+secret URIs, and `SIGNAL_LINKEDIN_CRAWLER_ENABLED=true`; `deploy.sh` then skips ZIP
+deployment. Private ACR pull permissions must already exist for that app.
+Container-only upgrades use `deploy-crawler.sh`. `deploy-backend.sh` refuses ZIP
+deployment onto a container app. Provisioning, registry access, Key Vault
+reference resolution, WebJob execution, and capacity still require live Azure
+validation in your chosen subscription.
 
 ## Signed iOS build and private installation
 
@@ -430,6 +583,10 @@ automatically; otherwise the signed IPA remains available for manual upload.
 ## Validation and known boundaries
 
 ```powershell
+backend\.venv\Scripts\python -m pip install -r backend\requirements-crawler.txt
+backend\.venv\Scripts\python -m playwright install chromium webkit
+# With Expo running locally, include the real-API-to-browser fixture test:
+$env:SIGNAL_TEST_READER_URL="http://localhost:8081"
 backend\.venv\Scripts\python -m pytest tests\backend -q
 Set-Location frontend
 npm run typecheck
@@ -438,13 +595,87 @@ npx expo install --check
 npx expo export --platform web
 ```
 
+For repeatable iPhone 13 Pro Max **mobile-browser** checks, run inside `frontend`:
+
+```powershell
+npx playwright install webkit
+npm run test:iphone
+```
+
+Set `SIGNAL_E2E_URL` to test an already-served exported web build instead of
+starting/reusing the development server.
+For live-mode fixture checks against a production export, compile with an HTTPS
+test API URL (for example `https://signal-e2e.invalid`); all API calls are
+intercepted locally. Use `expo export --clear` after changing public environment
+variables so a cached HTTP development endpoint does not enter the test bundle.
+
+The suite uses WebKit with the iPhone 13 Pro Max device profile, touch input,
+and 428 x 926 portrait / 926 x 428 landscape viewports. It covers navigation,
+topic cards, search, bookmarks, the reader, dark/large-text preferences, source
+images, and image retry. It uses isolated fictional demo data and locally
+fulfilled image fixtures, never LinkedIn credentials or a live AI provider.
+Screenshots, failure traces, and an HTML report are written to ignored
+`frontend/test-results` and `frontend/playwright-report` directories. Browser
+emulation does not verify native iOS safe areas, signing, or physical-device
+behavior; those still require the installed app on an actual iPhone.
+
+For native verification without Apple signing, `.github/workflows/ios-native.yml`
+builds the actual Release app on a macOS runner and installs it on an iPhone 13
+Pro Max iOS simulator. Maestro checks native login, source-image loading,
+original text, saving/read state, automatic background-batch refresh, and
+SecureStore session restoration after restarting the app. It uses real Chromium
+fixture extraction, a loopback Azurite Blob service, and a real HTTPS FastAPI
+server. Only this disposable simulator trusts the generated test CA; production
+HTTPS enforcement is unchanged. No LinkedIn account, Azure subscription, live
+AI key, Expo account, or Apple Developer membership is used. Screenshots, JUnit
+reports, build logs, and Blob-state verification are available in the
+`iphone-13-pro-max-native` workflow artifact for three days.
+The workflow runs on relevant pushes and supports manual dispatch once it is on
+the default branch. A simulator build is not a device-installable IPA or proof
+of physical-device behavior. Test-only routes exist solely in
+`tests/backend/native_fixture.py`, never the production API.
+
 Tests use a deterministic fake AI provider; they do not call a live model or
 LinkedIn. A successful local test is not evidence of live LinkedIn entitlement,
 Azure RBAC, iPhone behavior, Apple signing, EAS billing, or Google Drive access.
 Those require the corresponding accounts and credentials.
 
+The crawler tests intercept login/feed requests with isolated HTML fixtures.
+They exercise the actual browser selectors, expansion, limits, challenge stops,
+deduplication, processing recovery, separate leases, and the Blob-store branch
+with a simulated Blob service. The opt-in reader test runs a real local
+FastAPI server against temporary JSON, logs the iPhone-sized WebKit app into
+it, processes another background batch, and verifies automatic foreground
+refresh without tapping sync. Its image is
+`frontend/test-results/crawler-to-reader-iphone.png`. Without
+`SIGNAL_TEST_READER_URL`, that one cross-service test is skipped. Crawler tests
+are skipped if the optional Playwright package is absent.
+
+For the complete Linux-image check, keep your local Expo preview running and
+run from the repository root in PowerShell with Docker available on PATH:
+
+```powershell
+docker build --platform linux/amd64 -f deployment\Dockerfile -t signal-crawler:local-check .
+.\deployment\test-crawler-container.ps1
+# For an already-served export, pass -ReaderUrl http://host.docker.internal:<port>
+```
+
+The script runs the full backend suite inside the actual non-root worker image.
+It starts an isolated Azurite Blob emulator with generated temporary credentials
+and exercises real Blob SDK uploads, downloads and leases through collection,
+processing, the API, and automatic WebKit reader refresh. It also checks actual
+container startup/health, the published WebJob entry point in disabled mode,
+and non-root API processes. Its containers are removed afterward and caller
+environment values restored. The emulator screenshot is
+`frontend/test-results/crawler-blob-to-reader-iphone.png`.
+`SIGNAL_TEST_AZURITE_CONNECTION_STRING` opts into that test when running pytest
+directly; only local emulator endpoints are accepted. This remains a
+fixture-driven test, not a real LinkedIn login, live AI call, Azure deployment,
+managed-identity/RBAC test, or physical-iPhone installation.
+
 This is a single-user design. Server JSON is private, but anyone with your
 login passphrase can read your collection. Keep that passphrase strong and
 private. Source and AI text are rendered as text, never executable HTML.
-No LinkedIn media is redistributed, so every post uses branded topic artwork.
+Source images load from supplied authorized links; text-only posts use labeled
+topic artwork rather than invented source photographs.
 AI summaries can be wrong: the original is always separately visible.

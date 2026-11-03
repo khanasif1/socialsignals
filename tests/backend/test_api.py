@@ -1,5 +1,8 @@
 import json
 from datetime import timedelta
+from types import SimpleNamespace
+
+import pytest
 
 from app.services.reader import now
 
@@ -13,8 +16,10 @@ def ingest(client, auth, data):
     return client.get("/api/posts", headers=auth).json()["items"][0]
 
 
-def test_health_and_auth(client):
-    assert client.get("/api/health").json() == {"status": "ok", "storage": "connected"}
+@pytest.mark.parametrize("installed", [False, True])
+def test_health_and_auth(client, monkeypatch, installed):
+    monkeypatch.setattr("app.main.Path", lambda path: SimpleNamespace(is_file=lambda: installed))
+    assert client.get("/api/health").json() == {"status": "ok", "storage": "connected", "worker_image": installed}
     for path in ("/api/posts", "/api/bookmarks", "/api/settings", "/api/linkedin/status", "/api/statistics"):
         assert client.get(path).status_code == 401
     assert client.post("/api/auth/login", json={"secret": "wrong"}).status_code == 401

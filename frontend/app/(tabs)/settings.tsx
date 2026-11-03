@@ -33,16 +33,27 @@ export default function Settings() {
     </>}
     <Button label={s.demo ? 'Leave demo mode' : 'Explore demo edition'} subtle onPress={() => void s.run(() => s.setDemo(!s.demo))} />
     {s.token && !s.demo && <Button label="Sign out" subtle onPress={() => void s.run(s.logout)} />}
-    <Section title="LINKEDIN" detail={s.integration?.connected ? 'Identity connected' : 'Export mode'} />
+    <Section title="LINKEDIN" detail={s.integration?.mode === 'crawler' ? 'Background collection' : s.integration?.connected ? 'Identity connected' : 'Export mode'} />
     <View style={{ backgroundColor: c.surface, borderRadius: 28, padding: 24, gap: 16 }}>
-      <Label color={c.accent}>A CONNECTION, NOT A CRAWLER.</Label>
-      <Body muted>Standard LinkedIn APIs do not expose your personal home feed. Connect identity if configured, then import an official export containing your authorized posts.</Body>
+      <Label color={c.accent}>YOUR SOURCES. YOUR PRIVATE READER.</Label>
+      <Body muted>Standard LinkedIn APIs do not expose your personal home feed. Import an authorized export, or configure the optional background browser worker on your server. Never enter your LinkedIn password in this app.</Body>
+      {s.integration?.crawler?.enabled && <>
+        <Text style={{ color: ['failed', 'action_required'].includes(s.integration.crawler.status) ? c.danger : c.muted, fontSize: 12, lineHeight: 19 }}>
+          Background collection: {s.integration.crawler.status} · {s.integration.crawler.message}
+        </Text>
+        <Text style={{ color: c.muted, fontSize: 11, lineHeight: 18 }}>
+          Last successful collection: {s.integration.crawler.last_success_at ? new Date(s.integration.crawler.last_success_at).toLocaleString() : 'Never'}
+          {' · '}{s.integration.crawler.extracted} collected
+          {s.integration.crawler.limit_reached ? ' · Run limit reached; feed coverage is incomplete' : ''}
+        </Text>
+        <Body muted>Account challenges require your action outside SIGNAL. Collection stays paused until the server worker is explicitly resumed. Automated access may violate LinkedIn terms and restrict your account.</Body>
+      </>}
       <Button label="Connect / reconnect LinkedIn identity" disabled={s.demo || !s.token || !s.integration?.oauth_available}
         icon="link-outline" onPress={() => void s.run(s.connect)} />
       <Button label="Upload LinkedIn export" disabled={s.demo || !s.token} icon="cloud-upload-outline" subtle
         onPress={() => void s.run(s.importExport)} />
       <Text style={{ color: c.muted, fontSize: 11, lineHeight: 18 }}>Accepts Shares.csv, posts.json, or export ZIP (10 MiB). Only upload content you are authorized to process. Selected content is sent to your configured AI provider when synced.</Text>
-      <Text style={{ color: c.muted, fontSize: 11, lineHeight: 18 }}>Source images use direct HTTPS links from MediaUrl or image_urls in your export. Your device loads them from the original host; links may expire. Text-only posts use labeled topic artwork. Image links are not sent to the AI provider.</Text>
+      <Text style={{ color: c.muted, fontSize: 11, lineHeight: 18 }}>Source images use direct HTTPS links from an export or collected post. Your device loads them from the original host; links may expire. Text-only posts use labeled topic artwork. Image links are not sent to the AI provider.</Text>
       <Button label={s.syncStatus.status === 'running' ? 'Sync in progress…' : 'Sync imported posts'}
         disabled={s.demo || !s.token || s.syncStatus.status === 'running'} icon="sync-outline" onPress={() => void s.run(s.sync)} />
       <Text style={{ color: s.syncStatus.status === 'failed' ? c.danger : c.muted, fontSize: 12, lineHeight: 19 }}>{s.syncStatus.message}</Text>
@@ -61,9 +72,9 @@ export default function Settings() {
     <Label>RETENTION / BOOKMARKS ARE ALWAYS KEPT</Label>
     <Chips items={['1', '3', '7', '14', '30']} selected={String(p.retention_days)} onSelect={v => update({ retention_days: Number(v) as Preferences['retention_days'] })} />
     <Body muted>Days of imported raw and processed feed data to retain. Saved posts are stored independently.</Body>
-    <Label>AUTOMATIC EXPORT PROCESSING</Label>
+    <Label>AUTOMATIC IMPORT PROCESSING</Label>
     <Chips items={['manual', 'hourly', 'daily']} selected={p.sync_frequency} onSelect={v => update({ sync_frequency: v as Preferences['sync_frequency'] })} />
-    <Body muted>Schedules process already uploaded exports. They do not retrieve your LinkedIn feed.</Body>
+    <Body muted>These preferences schedule processing of imported posts. The optional server WebJob has its own collection schedule and processes its batch even when this is set to manual.</Body>
     <Label>SUMMARY LENGTH</Label>
     <Chips items={['short', 'medium', 'long']} selected={p.summary_length} onSelect={v => update({ summary_length: v as Preferences['summary_length'] })} />
     <Label>MINIMUM RELEVANCE</Label>

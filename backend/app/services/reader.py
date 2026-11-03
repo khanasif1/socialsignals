@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -105,11 +106,11 @@ class Reader:
                 # Active workers hold the writer lease. Allow abandoned reservations to recover.
                 if status.started_at and now() - status.started_at < timedelta(minutes=2):
                     raise BusyError("A sync is already running")
-            status = SyncStatus(status="running", started_at=now(), message="Processing uploaded LinkedIn exports.")
+            status = SyncStatus(status="running", started_at=now(), message="Processing imported LinkedIn posts.")
             self.store.write("metadata/last-sync.json", status.model_dump(mode="json"))
             return status
 
-    def sync(self):
+    def sync(self, *, deadline: float | None = None):
         with self.store.writer():
             status = self.status()
             preferences = self.preferences()
@@ -128,6 +129,8 @@ class Reader:
             try:
                 existing = self.posts()
                 for raw in selected:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        break
                     candidates = [{"id": p.id, "summary": p.insight.summary[:250]} for p in existing[-50:]]
                     insight = self.ai.analyze(raw, preferences, candidates)
                     candidate_ids = {p["id"] for p in candidates}
@@ -146,9 +149,10 @@ class Reader:
                     self.store.write("metadata/ingestion-state.json", state)
                     status.imported += 1
                     self.store.write("metadata/last-sync.json", status.model_dump(mode="json"))
+                    log.info("Processed %s imported posts in this batch", status.imported)
                 status.status = "completed"
-                status.remaining = len(pending) - len(selected)
-                status.message = "Export processed." if pending else "No new exported posts. Upload an export; LinkedIn home-feed retrieval is not available."
+                status.remaining = len(pending) - status.imported
+                status.message = "Imported posts processed." if pending else "No new imported posts to process."
             except Exception as error:
                 # Fail visibly, retaining raw data and completed records for a safe retry.
                 log.error("Sync failed (%s); raw data retained", type(error).__name__)

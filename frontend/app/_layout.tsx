@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
 import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
 import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
@@ -30,6 +31,8 @@ function Navigation() {
 }
 export default function Layout() {
   const [loaded, error] = useFonts({
+    ...Ionicons.font,
+    ...MaterialCommunityIcons.font,
     SignalRegular: Inter_400Regular,
     SignalMedium: Inter_500Medium,
     SignalBold: Inter_700Bold,

@@ -17,3 +17,6 @@ __pycache__/
 google-token.json
 *.zip
 deployment-result.json
+deployment/wheels/*
+!deployment/wheels/.gitkeep
+.azure/validate-status.json

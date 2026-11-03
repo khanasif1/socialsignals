@@ -23,6 +23,10 @@ param azureOpenaiDeployment string = ''
 param azureOpenaiApiVersion string = '2024-10-21'
 param linkedinClientId string = ''
 param corsOrigins array = []
+param containerImage string = ''
+param linkedinCrawlerEnabled bool = false
+param linkedinCrawlerUsernameSecretUri string = ''
+param linkedinCrawlerPasswordSecretUri string = ''
 
 var vaultName = 'sig-${uniqueString(resourceGroup().id, appName)}'
 
@@ -91,21 +95,28 @@ resource linkedinKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty
 resource web 'Microsoft.Web/sites@2023-12-01' = {
   name: appName
   location: location
-  kind: 'app,linux'
+  kind: empty(containerImage) ? 'app,linux' : 'app,linux,container'
   identity: { type: 'SystemAssigned' }
   properties: {
     serverFarmId: plan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'PYTHON|3.12'
-      appCommandLine: 'bash startup.sh'
+      linuxFxVersion: empty(containerImage) ? 'PYTHON|3.12' : 'DOCKER|${containerImage}'
+      appCommandLine: empty(containerImage) ? 'bash startup.sh' : ''
+      acrUseManagedIdentityCreds: !empty(containerImage)
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       scmMinTlsVersion: '1.2'
       http20Enabled: true
       appSettings: [
-        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
+        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: empty(containerImage) ? 'true' : 'false' }
+        { name: 'WEBSITES_PORT', value: '8000' }
+        { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'true' }
+        { name: 'SIGNAL_LINKEDIN_CRAWLER_ENABLED', value: linkedinCrawlerEnabled ? 'true' : 'false' }
+        { name: 'SIGNAL_LINKEDIN_CRAWLER_USERNAME', value: empty(linkedinCrawlerUsernameSecretUri) ? '' : '@Microsoft.KeyVault(SecretUri=${linkedinCrawlerUsernameSecretUri})' }
+        { name: 'SIGNAL_LINKEDIN_CRAWLER_PASSWORD', value: empty(linkedinCrawlerPasswordSecretUri) ? '' : '@Microsoft.KeyVault(SecretUri=${linkedinCrawlerPasswordSecretUri})' }
+        { name: 'WEBJOBS_DISABLE_SCHEDULE', value: linkedinCrawlerEnabled ? '0' : '1' }
         { name: 'SIGNAL_ENV', value: 'production' }
         { name: 'SIGNAL_STORAGE', value: 'azure' }
         { name: 'SIGNAL_STORAGE_ACCOUNT', value: storage.name }

@@ -1,0 +1,27 @@
+appId: com.signal.nativecheck
+---
+- extendedWaitUntil:
+    visible: "Read RAG native background update: measure source recall."
+    timeout: 90000
+- tapOn:
+    text: "Read RAG native background update: measure source recall."
+    index: 0
+- scrollUntilVisible:
+    element:
+      text: "Source image 1 of 1 for RAG native background update: measure source recall."
+    direction: DOWN
+- extendedWaitUntil:
+    notVisible: Loading source image
+    timeout: 15000
+- takeScreenshot: ${SCREENSHOT_DIR}/native-background-update
+- scrollUntilVisible:
+    element:
+      text: THE ORIGINAL POST
+    direction: DOWN
+- assertVisible: "RAG native background update: measure source recall."
+- launchApp
+- extendedWaitUntil:
+    visible: "Read RAG native background update: measure source recall."
+    timeout: 30000
+- assertNotVisible: Connect your private backend in Settings to start reading.
+- takeScreenshot: ${SCREENSHOT_DIR}/native-restored-session

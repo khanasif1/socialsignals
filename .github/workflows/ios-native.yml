@@ -1,0 +1,143 @@
+name: Native iPhone verification
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ios-native.yml'
+      - 'frontend/**'
+      - 'backend/**'
+      - 'tests/backend/**'
+      - 'tests/ios/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  iphone:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_PUBLIC_DEMO: 'false'
+      EXPO_PUBLIC_API_URL: https://localhost:8443
+      EXPO_PUBLIC_IOS_BUNDLE_ID: com.signal.nativecheck
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install application and fixture dependencies
+        run: |
+          npm ci --prefix frontend --no-audit --no-fund
+          python -m pip install -r backend/requirements-crawler.txt
+          python -m playwright install chromium
+      - name: Create iPhone 13 Pro Max and isolated TLS trust
+        run: |
+          runtime="$(xcrun simctl list runtimes -j | python -c 'import json,sys; items=[r for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and ".iOS-" in r["identifier"]]; print(max(items,key=lambda r:tuple(map(int,r["version"].split("."))))["identifier"])')"
+          device="$(xcrun simctl create 'SIGNAL iPhone 13 Pro Max' com.apple.CoreSimulator.SimDeviceType.iPhone-13-Pro-Max "$runtime")"
+          echo "SIMULATOR_UDID=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          python tests/backend/native_fixture.py certificate "$RUNNER_TEMP/native-tls"
+          xcrun simctl keychain "$device" add-root-cert "$RUNNER_TEMP/native-tls/root.pem"
+          mkdir -p "$RUNNER_TEMP/native-output"
+          xcrun simctl list devices -j > "$RUNNER_TEMP/native-output/devices.json"
+      - name: Build native Release application without device signing
+        working-directory: frontend
+        run: |
+          npx expo prebuild --platform ios --no-install
+          pod install --project-directory=ios
+          if ! xcodebuild -workspace ios/SIGNAL.xcworkspace -scheme SIGNAL \
+            -configuration Release -sdk iphonesimulator -destination "id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/signal-ios-build" CODE_SIGNING_ALLOWED=NO \
+            > "$RUNNER_TEMP/native-output/xcodebuild.log" 2>&1; then
+            tail -100 "$RUNNER_TEMP/native-output/xcodebuild.log"
+            exit 1
+          fi
+          xcrun simctl install "$SIMULATOR_UDID" "$RUNNER_TEMP/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app"
+      - name: Install checksum-pinned Maestro
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.1/maestro.zip \
+            --output "$RUNNER_TEMP/maestro.zip"
+          echo "54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7  $RUNNER_TEMP/maestro.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          echo "$RUNNER_TEMP/maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Start real Blob emulator and HTTPS fixture API
+        run: |
+          azurite="$(npm exec --yes --package=azurite@3.35.0 -- which azurite-blob)"
+          key="$(python -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
+          echo "::add-mask::$key"
+          export AZURITE_ACCOUNTS="signaltest:$key"
+          export SIGNAL_TEST_AZURITE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=signaltest;AccountKey=$key;BlobEndpoint=http://127.0.0.1:10000/signaltest;"
+          "$azurite" --silent --location "$RUNNER_TEMP/azurite" --blobHost 127.0.0.1 --blobPort 10000 > "$RUNNER_TEMP/native-output/azurite.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/azurite.pid"
+          for attempt in {1..30}; do
+            if nc -z 127.0.0.1 10000; then break; fi
+            sleep 1
+          done
+          nc -z 127.0.0.1 10000
+          python tests/backend/native_fixture.py serve "$RUNNER_TEMP/native-tls" > "$RUNNER_TEMP/native-output/api.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/native-api.pid"
+          for attempt in {1..60}; do
+            if curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" https://localhost:8443/health; then break; fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/native-api.pid")"; then
+              cat "$RUNNER_TEMP/native-output/api.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" https://localhost:8443/health
+      - name: Test native login, image, original text, bookmarks and read state
+        run: |
+          maestro --device "$SIMULATOR_UDID" test -e "SCREENSHOT_DIR=$RUNNER_TEMP/native-output" \
+            --format junit --output "$RUNNER_TEMP/native-output/reader.xml" \
+            --test-output-dir "$RUNNER_TEMP/native-output/reader" tests/ios/reader.yaml
+      - name: Test automatic background refresh and native session restoration
+        run: |
+          curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" \
+            -X POST https://localhost:8443/__fixture/collect
+          maestro --device "$SIMULATOR_UDID" test -e "SCREENSHOT_DIR=$RUNNER_TEMP/native-output" \
+            --format junit --output "$RUNNER_TEMP/native-output/refresh.xml" \
+            --test-output-dir "$RUNNER_TEMP/native-output/refresh" tests/ios/refresh.yaml
+          curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" \
+            -X POST https://localhost:8443/__fixture/verify \
+            | tee "$RUNNER_TEMP/native-output/blob-verification.json"
+          python -c 'import json,os; result=json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"native-output","blob-verification.json"))); assert result == {"posts":2,"saved":True,"read":True,"storage":"azure"}'
+      - name: Capture failure state
+        if: failure()
+        run: |
+          if [ -n "${SIMULATOR_UDID:-}" ]; then
+            xcrun simctl io "$SIMULATOR_UDID" screenshot "$RUNNER_TEMP/native-output/failure.png"
+          fi
+      - name: Upload native screenshots, reports and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-13-pro-max-native
+          path: ${{ runner.temp }}/native-output
+          retention-days: 3
+          if-no-files-found: warn
+      - name: Stop owned fixture processes
+        if: always()
+        run: |
+          for name in native-api azurite; do
+            if [ -f "$RUNNER_TEMP/$name.pid" ]; then
+              pid="$(cat "$RUNNER_TEMP/$name.pid")"
+              if kill -0 "$pid" 2>/dev/null; then kill "$pid"; fi
+            fi
+          done

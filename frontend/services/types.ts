@@ -7,7 +7,7 @@ export type Post = {
   id: string; author: string | null; author_url: string | null; url: string | null;
   published_at: string | null; original_text: string; imported_at: string;
   image_urls?: string[];
-  source: 'linkedin_export'; insight: Insight; generation: 'llm' | 'demo'; read: boolean; saved: boolean;
+  source: 'linkedin_export' | 'linkedin_crawler'; insight: Insight; generation: 'llm' | 'demo'; read: boolean; saved: boolean;
 };
 export type Preferences = {
   retention_days: 1 | 3 | 7 | 14 | 30; max_posts_per_sync: number; min_relevance_score: number;
@@ -20,7 +20,12 @@ export type SyncStatus = {
   remaining: number; message: string;
 };
 export type Integration = {
-  connected: boolean; oauth_available: boolean; personal_feed_available: false; mode: 'export'; message: string;
+  connected: boolean; oauth_available: boolean; personal_feed_available: false; mode: 'export' | 'crawler'; message: string;
+  crawler?: {
+    enabled: boolean; status: 'never' | 'disabled' | 'running' | 'completed' | 'failed' | 'action_required';
+    started_at: string | null; finished_at: string | null; last_success_at: string | null;
+    extracted: number; skipped: number; limit_reached: boolean; code: string; message: string;
+  };
 };
 export type Explanation = { executive: string; architect: string; technical: string; generated: boolean };
 export type Statistics = {

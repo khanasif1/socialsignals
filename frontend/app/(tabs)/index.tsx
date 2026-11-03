@@ -89,7 +89,7 @@ export default function Today() {
         </Surface>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, padding: 8 }}>
           <MaterialCommunityIcons name="shield-lock-outline" color={c.muted} size={16} />
-          <Text style={{ color: c.muted, fontSize: 11, flex: 1 }}>{s.demo ? 'Fictional demo edition · Your live data stays separate' : 'Private by design · LinkedIn exports only'}</Text>
+          <Text style={{ color: c.muted, fontSize: 11, flex: 1 }}>{s.demo ? 'Fictional demo edition · Your live data stays separate' : 'Private by design · Your LinkedIn sources'}</Text>
         </View>
       </View>
     </View>

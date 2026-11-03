@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from azure.core.exceptions import HttpResponseError, ResourceExistsError, ResourceNotFoundError
+from azure.core.exceptions import AzureError, HttpResponseError, ResourceExistsError, ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobLeaseClient, BlobServiceClient, ContentSettings
 from filelock import FileLock, Timeout
@@ -124,14 +124,27 @@ class JsonStore:
 
     @contextmanager
     def writer(self):
+        with self.lease("writer") as failed:
+            self.guard.failed = failed
+            try:
+                yield
+                self._check_writer()
+            finally:
+                self.guard.failed = None
+
+    @contextmanager
+    def lease(self, name: str):
+        if name not in ("writer", "crawler"):
+            raise ValueError("Unknown storage lease")
         lease = None
         stop = threading.Event()
         failed = threading.Event()
         renewal = None
         acquired = False
+        lock = self.lock if name == "writer" else FileLock(str(self.root / ".crawler.lock"))
         try:
             if self.container:
-                blob = self.container.get_blob_client("metadata/writer-lock.json")
+                blob = self.container.get_blob_client(f"metadata/{name}-lock.json")
                 try:
                     blob.upload_blob(b"{}", overwrite=False)
                 except ResourceExistsError:
@@ -149,8 +162,8 @@ class JsonStore:
                     while not stop.wait(10):
                         try:
                             lease.renew()
-                        except HttpResponseError:
-                            log.exception("Writer lease renewal failed")
+                        except AzureError as error:
+                            log.error("%s lease renewal failed (%s)", name, type(error).__name__)
                             failed.set()
                             return
 
@@ -158,22 +171,21 @@ class JsonStore:
                 renewal.start()
             else:
                 try:
-                    self.lock.acquire(timeout=2)
+                    lock.acquire(timeout=2)
                     acquired = True
                 except Timeout as error:
                     raise BusyError("Another operation is running") from error
-            self.guard.failed = failed
-            yield
-            self._check_writer()
+            yield failed
+            if failed.is_set():
+                raise BusyError("Storage lease lost; retry operation")
         finally:
-            self.guard.failed = None
             stop.set()
             if renewal:
                 renewal.join(timeout=30)
             if acquired and lease:
                 try:
                     lease.release()
-                except HttpResponseError:
-                    log.exception("Writer lease release failed")
+                except AzureError as error:
+                    log.error("%s lease release failed (%s)", name, type(error).__name__)
             elif acquired:
-                self.lock.release()
+                lock.release()
