@@ -4,7 +4,7 @@ import posts from '../assets/posts.json';
 async function navigate(page: Page, name: string) {
   const tab = page.getByRole('tab', { name: new RegExp(name) });
   if (await tab.count()) await tab.click();
-  else await page.getByRole('button', { name, exact: true }).click();
+  else await page.getByTestId('button').and(page.getByRole('button', { name, exact: true })).click();
 }
 
 function chip(page: Page, name: string) {
@@ -27,13 +27,10 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect(page.getByText('Less noise. More signal.', { exact: true })).toBeVisible();
   await expect.poll(() => savedCount(page)).toBe(posts.filter(post => post.saved).length);
-  await page.evaluate(async () => { await document.fonts.ready; });
-  const loadedFonts = await page.evaluate(() => {
-    const families: string[] = [];
-    document.fonts.forEach(font => { if (font.status === 'loaded') families.push(font.family); });
-    return families;
-  });
-  expect(loadedFonts).toEqual(expect.arrayContaining(['ionicons', 'material-community']));
+  await expect.poll(() => page.evaluate(async () => {
+    const fonts = await Promise.all(['ionicons', 'material-community'].map(family => document.fonts.load(`16px "${family}"`)));
+    return fonts.map(faces => faces.length > 0 && faces.every(face => face.status === 'loaded'));
+  })).toEqual([true, true]);
 });
 
 test('phone layout, navigation and bookmark touch targets', async ({ page }, testInfo) => {

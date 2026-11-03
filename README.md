@@ -637,9 +637,10 @@ of physical-device behavior. Test-only routes exist solely in
 Document-title/description metadata is rendered only on the web. The private
 native reader does not invent a hosted-web origin or show Expo's missing
 Handoff-origin alert during navigation.
-The workflow adds a local ad-hoc signature and an isolated simulator Keychain
-access group to the test app. It does not replace SecureStore with plaintext
-storage or configure these test entitlements in production app settings.
+Xcode generates the simulator's ad-hoc signature and simulated entitlements
+during compilation, so SecureStore uses the actual simulator Keychain.
+The workflow does not invent an Apple team, re-sign the app with device
+entitlements, or replace SecureStore with plaintext storage.
 
 Tests use a deterministic fake AI provider; they do not call a live model or
 LinkedIn. A successful local test is not evidence of live LinkedIn entitlement,

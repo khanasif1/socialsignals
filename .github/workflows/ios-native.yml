@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/ios-native.yml'
       - 'frontend/**'
+      - '!frontend/e2e/**'
+      - '!frontend/playwright.config.ts'
       - 'backend/**'
       - 'tests/backend/**'
       - 'tests/ios/**'
@@ -48,7 +50,8 @@ jobs:
       - name: Identify the native app build
         id: native-key
         run: |
-          key="$(printf '%s\n' "$(git rev-parse HEAD:frontend)" "$(xcodebuild -version)" \
+          frontend="$(git ls-tree -r HEAD frontend | grep -vE 'frontend/(e2e/|playwright\.config\.ts$)')"
+          key="$(printf '%s\n' "$frontend" "$(xcodebuild -version)" \
             "$EXPO_PUBLIC_DEMO" "$EXPO_PUBLIC_API_URL" "$EXPO_PUBLIC_IOS_BUNDLE_ID" \
             | shasum -a 256 | cut -d ' ' -f 1)"
           echo "value=$key" >> "$GITHUB_OUTPUT"
@@ -57,7 +60,7 @@ jobs:
         id: native-app
         with:
           path: ${{ runner.temp }}/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app
-          key: ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-key.outputs.value }}
+          key: ios-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-key.outputs.value }}
       - name: Create iPhone 13 Pro Max and isolated TLS trust
         run: |
           runtime="$(xcrun simctl list runtimes -j | python -c 'import json,sys; items=[r for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and ".iOS-" in r["identifier"]]; print(max(items,key=lambda r:tuple(map(int,r["version"].split("."))))["identifier"])')"
@@ -69,7 +72,7 @@ jobs:
           xcrun simctl keychain "$device" add-root-cert "$RUNNER_TEMP/native-tls/root.pem"
           mkdir -p "$RUNNER_TEMP/native-output"
           xcrun simctl list devices -j > "$RUNNER_TEMP/native-output/devices.json"
-      - name: Build native Release application without device signing
+      - name: Build native Release application with Xcode simulator signing
         if: steps.native-app.outputs.cache-hit != 'true'
         working-directory: frontend
         run: |
@@ -77,7 +80,7 @@ jobs:
           pod install --project-directory=ios
           if ! xcodebuild -workspace ios/SIGNAL.xcworkspace -scheme SIGNAL \
             -configuration Release -sdk iphonesimulator -destination "id=$SIMULATOR_UDID" \
-            -derivedDataPath "$RUNNER_TEMP/signal-ios-build" CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath "$RUNNER_TEMP/signal-ios-build" CODE_SIGN_IDENTITY=- \
             > "$RUNNER_TEMP/native-output/xcodebuild.log" 2>&1; then
             tail -100 "$RUNNER_TEMP/native-output/xcodebuild.log"
             exit 1
@@ -87,18 +90,11 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app
-          key: ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-key.outputs.value }}
+          key: ios-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-key.outputs.value }}
       - name: Install native application
         run: |
           app="$RUNNER_TEMP/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" = "$EXPO_PUBLIC_IOS_BUNDLE_ID"
-          python -c 'import os,plistlib; appid="SIGNALTEST."+os.environ["EXPO_PUBLIC_IOS_BUNDLE_ID"]; plistlib.dump({"application-identifier":appid,"com.apple.developer.team-identifier":"SIGNALTEST","keychain-access-groups":[appid],"get-task-allow":True},open(os.path.join(os.environ["RUNNER_TEMP"],"simulator.entitlements"),"wb"))'
-          for framework in "$app"/Frameworks/*.framework "$app"/Frameworks/*.dylib; do
-            if [ -e "$framework" ]; then
-              codesign --force --sign - "$framework"
-            fi
-          done
-          codesign --force --sign - --entitlements "$RUNNER_TEMP/simulator.entitlements" "$app"
           codesign --verify --deep --strict "$app"
           codesign --display --entitlements - "$app" > "$RUNNER_TEMP/native-output/simulator-entitlements.plist"
           xcrun simctl install "$SIMULATOR_UDID" "$app"
@@ -156,6 +152,9 @@ jobs:
         run: |
           if [ -n "${SIMULATOR_UDID:-}" ]; then
             xcrun simctl io "$SIMULATOR_UDID" screenshot "$RUNNER_TEMP/native-output/failure.png"
+            xcrun simctl spawn "$SIMULATOR_UDID" log show --last 3m --style compact \
+              --predicate 'eventMessage CONTAINS "com.signal.nativecheck" OR process == "SIGNAL"' \
+              > "$RUNNER_TEMP/native-output/application.log"
           fi
       - name: Upload native screenshots, reports and build logs
         if: always()
