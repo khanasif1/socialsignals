@@ -25,18 +25,18 @@ jobs:
       EXPO_PUBLIC_IOS_BUNDLE_ID: com.signal.nativecheck
       MAESTRO_CLI_NO_ANALYTICS: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
@@ -45,6 +45,19 @@ jobs:
           npm ci --prefix frontend --no-audit --no-fund
           python -m pip install -r backend/requirements-crawler.txt
           python -m playwright install chromium
+      - name: Identify the native app build
+        id: native-key
+        run: |
+          key="$(printf '%s\n' "$(git rev-parse HEAD:frontend)" "$(xcodebuild -version)" \
+            "$EXPO_PUBLIC_DEMO" "$EXPO_PUBLIC_API_URL" "$EXPO_PUBLIC_IOS_BUNDLE_ID" \
+            | shasum -a 256 | cut -d ' ' -f 1)"
+          echo "value=$key" >> "$GITHUB_OUTPUT"
+      - name: Restore identical native application
+        uses: actions/cache/restore@v6
+        id: native-app
+        with:
+          path: ${{ runner.temp }}/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app
+          key: ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-key.outputs.value }}
       - name: Create iPhone 13 Pro Max and isolated TLS trust
         run: |
           runtime="$(xcrun simctl list runtimes -j | python -c 'import json,sys; items=[r for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and ".iOS-" in r["identifier"]]; print(max(items,key=lambda r:tuple(map(int,r["version"].split("."))))["identifier"])')"
@@ -57,6 +70,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native-output"
           xcrun simctl list devices -j > "$RUNNER_TEMP/native-output/devices.json"
       - name: Build native Release application without device signing
+        if: steps.native-app.outputs.cache-hit != 'true'
         working-directory: frontend
         run: |
           npx expo prebuild --platform ios --no-install
@@ -68,7 +82,17 @@ jobs:
             tail -100 "$RUNNER_TEMP/native-output/xcodebuild.log"
             exit 1
           fi
-          xcrun simctl install "$SIMULATOR_UDID" "$RUNNER_TEMP/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app"
+      - name: Preserve successful compilation for fixture-only reruns
+        if: steps.native-app.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app
+          key: ios-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-key.outputs.value }}
+      - name: Install native application
+        run: |
+          app="$RUNNER_TEMP/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" = "$EXPO_PUBLIC_IOS_BUNDLE_ID"
+          xcrun simctl install "$SIMULATOR_UDID" "$app"
       - name: Install checksum-pinned Maestro
         run: |
           curl --fail --location --retry 3 \
@@ -126,7 +150,7 @@ jobs:
           fi
       - name: Upload native screenshots, reports and build logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: iphone-13-pro-max-native
           path: ${{ runner.temp }}/native-output

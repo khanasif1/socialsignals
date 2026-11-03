@@ -634,6 +634,9 @@ The workflow runs on relevant pushes and supports manual dispatch once it is on
 the default branch. A simulator build is not a device-installable IPA or proof
 of physical-device behavior. Test-only routes exist solely in
 `tests/backend/native_fixture.py`, never the production API.
+Document-title/description metadata is rendered only on the web. The private
+native reader does not invent a hosted-web origin or show Expo's missing
+Handoff-origin alert during navigation.
 
 Tests use a deterministic fake AI provider; they do not call a live model or
 LinkedIn. A successful local test is not evidence of live LinkedIn entitlement,

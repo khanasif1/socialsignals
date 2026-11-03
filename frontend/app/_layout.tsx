@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
@@ -21,7 +22,7 @@ function Navigation() {
   const reducedMotion = useReducedMotion();
   const theme = useMemo(() => materialTheme(isDark, reducedMotion), [isDark, reducedMotion]);
   return <PaperProvider theme={theme}>
-    <Head><title>SIGNAL — Personal intelligence</title><meta name="description" content="Your private, distraction-free technical reader." /></Head>
+    {Platform.OS === 'web' && <Head><title>SIGNAL — Personal intelligence</title><meta name="description" content="Your private, distraction-free technical reader." /></Head>}
     <StatusBar style={isDark ? 'light' : 'dark'} />
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg }, animation: 'slide_from_right' }}>
       <Stack.Screen name="(tabs)" />
