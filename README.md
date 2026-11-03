@@ -642,6 +642,14 @@ during compilation, so SecureStore uses the actual simulator Keychain.
 The workflow does not invent an Apple team, re-sign the app with device
 entitlements, or replace SecureStore with plaintext storage.
 
+Verified native run: [iPhone 13 Pro Max, iOS 26.2](https://github.com/khanasif1/socialsignals/actions/runs/41590115395).
+Both native flows passed: login, source image, original text, save/read,
+automatic arrival of a second background batch without tapping sync, and
+Keychain session restoration after restarting the app. Final Blob-emulator
+verification returned two processed posts with the first saved and read.
+The screenshots contain synthetic fixture posts and a generated test image;
+this is not evidence of live LinkedIn extraction or an Azure deployment.
+
 Tests use a deterministic fake AI provider; they do not call a live model or
 LinkedIn. A successful local test is not evidence of live LinkedIn entitlement,
 Azure RBAC, iPhone behavior, Apple signing, EAS billing, or Google Drive access.

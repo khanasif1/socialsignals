@@ -118,6 +118,17 @@ Completed locally without real LinkedIn credentials or Azure resource changes:
   no live LinkedIn account or AI provider was used.
 - TypeScript checking, 9 frontend unit tests, and final Expo web/iOS bundle
   exports passed. An exported iOS bundle is not a signed IPA.
+- The actual Release app passed both Maestro flows on an iPhone 13 Pro Max
+  simulator running iOS 26.2:
+  https://github.com/khanasif1/socialsignals/actions/runs/41590115395.
+  Real Chromium fixture extraction, Azure Blob SDK requests against Azurite,
+  HTTPS FastAPI, native login, image loading, original text, save/read,
+  automatic second-batch refresh without tapping sync, and Keychain session
+  restoration after app restart passed. Final persisted state contained two
+  processed posts with the first saved and read. Xcode generated simulator
+  signing and entitlements; no Apple account or device profile was used.
+  Fixture posts, images, and AI output are synthetic. This does not verify
+  live LinkedIn access, production Azure identity, or a physical iPhone.
 - All 72 backend tests passed inside the actual Linux worker image. This
   includes real Chromium extraction against intercepted synthetic pages,
   actual Azure Blob SDK calls against isolated Azurite containers, real
@@ -135,8 +146,8 @@ Completed locally without real LinkedIn credentials or Azure resource changes:
 Pending: approved Azure context/capacity/permissions, registry publication and
 deployment, actual Kudu schedule execution, managed-identity Blob integration,
 Key Vault resolution, live AI processing, approved account login and unattended
-collection, and installation/testing on a physical iPhone. Browser emulation
-does not verify native iOS safe areas or signing. Account challenges are never
+collection, and installation/testing on a physical iPhone. Native simulator
+verification does not prove physical-device behavior. Account challenges are never
 bypassed; live LinkedIn DOM compatibility and account acceptance are unverified.
 
 ## Validation proof
