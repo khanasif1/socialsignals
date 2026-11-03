@@ -619,7 +619,7 @@ Screenshots, failure traces, and an HTML report are written to ignored
 emulation does not verify native iOS safe areas, signing, or physical-device
 behavior; those still require the installed app on an actual iPhone.
 
-For native verification without Apple signing, `.github/workflows/ios-native.yml`
+For native verification without an Apple account, `.github/workflows/ios-native.yml`
 builds the actual Release app on a macOS runner and installs it on an iPhone 13
 Pro Max iOS simulator. Maestro checks native login, source-image loading,
 original text, saving/read state, automatic background-batch refresh, and
@@ -637,6 +637,9 @@ of physical-device behavior. Test-only routes exist solely in
 Document-title/description metadata is rendered only on the web. The private
 native reader does not invent a hosted-web origin or show Expo's missing
 Handoff-origin alert during navigation.
+The workflow adds a local ad-hoc signature and an isolated simulator Keychain
+access group to the test app. It does not replace SecureStore with plaintext
+storage or configure these test entitlements in production app settings.
 
 Tests use a deterministic fake AI provider; they do not call a live model or
 LinkedIn. A successful local test is not evidence of live LinkedIn entitlement,

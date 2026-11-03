@@ -92,6 +92,15 @@ jobs:
         run: |
           app="$RUNNER_TEMP/signal-ios-build/Build/Products/Release-iphonesimulator/SIGNAL.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" = "$EXPO_PUBLIC_IOS_BUNDLE_ID"
+          python -c 'import os,plistlib; appid="SIGNALTEST."+os.environ["EXPO_PUBLIC_IOS_BUNDLE_ID"]; plistlib.dump({"application-identifier":appid,"com.apple.developer.team-identifier":"SIGNALTEST","keychain-access-groups":[appid],"get-task-allow":True},open(os.path.join(os.environ["RUNNER_TEMP"],"simulator.entitlements"),"wb"))'
+          for framework in "$app"/Frameworks/*.framework "$app"/Frameworks/*.dylib; do
+            if [ -e "$framework" ]; then
+              codesign --force --sign - "$framework"
+            fi
+          done
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/simulator.entitlements" "$app"
+          codesign --verify --deep --strict "$app"
+          codesign --display --entitlements - "$app" > "$RUNNER_TEMP/native-output/simulator-entitlements.plist"
           xcrun simctl install "$SIMULATOR_UDID" "$app"
       - name: Install checksum-pinned Maestro
         run: |
