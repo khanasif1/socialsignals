@@ -1,6 +1,11 @@
 appId: com.signal.nativecheck
 ---
-- tapOn: Search insights
+- tapOn:
+    text: Search insights
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Search posts
+    timeout: 30000
 - tapOn: Search posts
 - inputText: source recall
 - hideKeyboard
