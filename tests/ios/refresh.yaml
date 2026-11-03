@@ -30,7 +30,7 @@ appId: com.signal.nativecheck
     direction: DOWN
 - assertVisible: "RAG native background update: measure source recall."
 - launchApp
-- tapOn: Open settings
+- tapOn: "Settings, tab, 5 of 5"
 - extendedWaitUntil:
     visible: Signed in. Your session is stored securely on iOS.
     timeout: 30000
