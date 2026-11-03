@@ -26,7 +26,7 @@ appId: com.signal.nativecheck
     notVisible: Loading source image
     timeout: 15000
 - assertNotVisible: "Source image unavailable.*"
-- takeScreenshot: ${SCREENSHOT_DIR}/native-reader
+- takeScreenshot: native-reader
 - scrollUntilVisible:
     element:
       text: Save

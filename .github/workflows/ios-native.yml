@@ -133,14 +133,14 @@ jobs:
           curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" https://localhost:8443/api/health
       - name: Test native login, image, original text, bookmarks and read state
         run: |
-          maestro --device "$SIMULATOR_UDID" test -e "SCREENSHOT_DIR=$RUNNER_TEMP/native-output" \
+          maestro --device "$SIMULATOR_UDID" test \
             --format junit --output "$RUNNER_TEMP/native-output/reader.xml" \
             --test-output-dir "$RUNNER_TEMP/native-output/reader" tests/ios/reader.yaml
       - name: Test automatic background refresh and native session restoration
         run: |
           curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" \
             -X POST https://localhost:8443/__fixture/collect
-          maestro --device "$SIMULATOR_UDID" test -e "SCREENSHOT_DIR=$RUNNER_TEMP/native-output" \
+          maestro --device "$SIMULATOR_UDID" test \
             --format junit --output "$RUNNER_TEMP/native-output/refresh.xml" \
             --test-output-dir "$RUNNER_TEMP/native-output/refresh" tests/ios/refresh.yaml
           curl --fail --silent --cacert "$RUNNER_TEMP/native-tls/root.pem" \
