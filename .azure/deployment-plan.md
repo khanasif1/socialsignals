@@ -335,6 +335,18 @@ The initial deployment checkpoint above is historical, not the current crawler
 state. Direct workstation Blob browsing and live LinkedIn collection remain
 external blockers, not completed verification.
 
+The operator subsequently requested consolidation and removal of non-main
+GitHub branches. The sole non-main branch was identical to main at `6fb70f6`;
+containment was checked before an expected-head-guarded remote deletion.
+Local worktree files were preserved.
+
+The explicitly requested corporate sign-in was resolved through the resource
+directory's aliases to the same operator identity already holding Blob Data
+Reader and inherited Owner. No additional/broader role was necessary. The
+provided Portal error confirms a public-network restriction. Approval for a
+single-client network exception was requested but unavailable; storage remains
+private-only. README now includes a numbered operator verification checklist.
+
 `docker build --quiet --tag signal-crawler:cloud-validated --file deployment/Dockerfile .`
 passed against the Linux engine, producing image
 `sha256:9f917fadaad85285dd84b6d331c20a41457e54e48962cde8cb4bb181853c63d1`.

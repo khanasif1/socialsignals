@@ -429,11 +429,46 @@ The [secure setup helper](#new-container-stack-with-entra-only-azure-openai)
 verifies those references and backend health before enabling the schedule.
 It does not perform a login or trigger the first crawl.
 
-For an immediate first run, open **Azure Portal > rg-signal-aue >
+For an immediate first run, first check that collection is not paused, then open
+**Azure Portal > rg-signal-aue >
 signal-aue-957858fe > WebJobs > linkedin-crawler > Run**.
 Open that job's **Logs** and select the latest run. A Kudu `Success` by itself
 is not evidence of extraction: a disabled job also exits successfully.
 Check the persisted crawl status and source provenance below.
+
+### Verify the crawler, step by step
+
+1. **Check configuration.** Select the subscription's directory in Azure Portal,
+   then open `rg-signal-aue > signal-aue-957858fe`. Verify both LinkedIn Key Vault
+   references show `Resolved`, collection is `true`, and
+   `WEBJOBS_DISABLE_SCHEDULE` is `0`. These checks do not prove a successful login.
+2. **Check the last result before starting.** In SIGNAL's live
+   `Settings > LINKEDIN`, or `metadata/last-crawl.json` over an approved private
+   connection, inspect `status`, `code` and `last_success_at`.
+   If `status` is `action_required`, stop here and follow
+   [safe recovery](#observed-live-result-and-safe-recovery) only after resolving
+   the source restriction. Repeated normal Run clicks do not clear that pause.
+3. **Run once and watch the logs.** If the worker is not paused, open
+   `WebJobs > linkedin-crawler > Run`, then its `Logs` and latest execution.
+   Do not start overlapping runs. Scheduling normally performs this at 06:00 UTC.
+4. **Prove collection, not just execution.** Check that `last-crawl.json` reports
+   `completed` and a new `last_success_at`. Inspect `extracted` and the matching
+   raw batch under `linkedin/raw/<UTC-import-date>/`; real browser records have
+   `source: "linkedin_crawler"`. A legitimate empty feed can produce zero posts;
+   a previous synthetic sample is never evidence of a new collection.
+5. **Prove processing.** Inspect `metadata/last-sync.json` for completed/failed
+   state and remaining work, then inspect `linkedin/processed/<UTC-import-date>/`.
+   Link the processed IDs to the raw records. Relevance filtering and duplicate
+   suppression can make the processed count smaller than the collected count.
+6. **Check the reader when running the app.** Connect to the deployed HTTPS
+   backend with the independent private-reader passphrase, leave demo mode,
+   and foreground or refresh the app. Compare the displayed original/source
+   with the processed record. Active sessions refresh automatically every minute.
+
+Blob file inspection in these steps requires the
+[network access described below](#blob-portal-access-roles-and-networking-are-separate).
+WebJob logs and the authenticated reader/API status remain available without
+direct workstation access to the private Blob endpoint.
 
 ### Where to see the extracted data
 
@@ -479,6 +514,10 @@ rights from that new assignment. The app keeps its separate container-scoped
 Storage Blob Data Contributor role.
 Sign into Portal with that same Azure account; an assignment to one account
 does not grant access to another account signed into the browser.
+External corporate sign-ins can have a resource-tenant `#EXT#` principal name
+and a different primary mail alias. Resolve the requested sign-in through its
+directory identity/aliases and assign the object ID, rather than assuming an
+email lookup or display-name match identifies the correct principal.
 
 **The account is private-network-only. A data role does not bypass its network
 boundary.** Public network access and shared-key access remain disabled.
@@ -489,6 +528,12 @@ the connected VNet. An ordinary internet-connected laptop or default Cloud
 Shell cannot browse these files just because it has the read role. The current
 stack does not provision a workstation VPN or a VNet-integrated Cloud Shell.
 Do not enable all-network access or account keys to work around this.
+An error explicitly mentioning **Firewalls and virtual networks** or blocked
+public network access is not fixed by adding more Owner/Contributor roles.
+Any exception for a workstation must be separately approved, limited to its
+verified egress IP and permitted by Azure policy. Client IPs and personal
+directory identities must not be added to public deployment examples.
+This Azure Blob 403 is separate from LinkedIn's `access_restricted` crawl result.
 
 After connecting to the private network, allow several minutes for RBAC
 propagation, refresh Portal, and select Microsoft Entra authentication.
