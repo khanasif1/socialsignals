@@ -24,6 +24,9 @@ official LinkedIn exports and includes an **opt-in background browser worker**.
 Standard LinkedIn permissions do not grant network-feed access; the worker is
 not an official API integration. Demo posts and authors are explicitly fictional.
 
+For the deployed application, start with the
+[end-to-end Azure flow and data inspection runbook](#live-azure-flow-and-data-inspection).
+
 ## Project structure
 
 ```text
@@ -371,6 +374,188 @@ The app's hourly/daily preferences process imported records, not browser
 collection. The WebJob has its own schedule. Retention also runs when automatic
 import processing is manual.
 
+## Live Azure flow and data inspection
+
+The deployed reader uses one background **App Service WebJob**, not an Azure
+Function or a crawler running on your iPhone. The API and job share the app's
+managed identity and the private `signal-data` Blob container.
+
+```mermaid
+flowchart LR
+    KV["Key Vault credential references"] --> JOB["LinkedIn WebJob"]
+    LI["Authorized visible LinkedIn feed"] -->|"Bounded Playwright collection"| JOB
+    JOB --> RAW["Blob: linkedin/raw/date/batch.json"]
+    RAW --> PROCESS["Worker: AI, relevance and deduplication"]
+    AOAI["Azure OpenAI via Entra managed identity"] --> PROCESS
+    PROCESS --> POSTS["Blob: linkedin/processed/date/content-id.json"]
+    POSTS --> API["FastAPI /api/posts"]
+    API --> IOS["SIGNAL iPhone reader"]
+    JOB --> CRAWL["metadata/last-crawl.json"]
+    PROCESS --> SYNC["metadata/last-sync.json"]
+```
+
+The source implementation is
+[`crawler.py`](backend/app/services/linkedin/crawler.py),
+[`worker.py`](backend/app/worker.py), and
+[`Reader.import_posts / Reader.sync`](backend/app/services/reader.py).
+Collection preserves original text, source links, available author/time fields,
+and source-image **URLs**. Image binaries are not copied into Blob; the reader
+loads those HTTPS URLs from their original hosts, and they can expire.
+AI processing writes summaries/classification only for retained, relevant,
+nonduplicate posts. Therefore raw and processed counts need not match.
+
+### Resources, timing and controls
+
+| Purpose | Current deployed resource |
+|---|---|
+| Resource group / region | `rg-signal-aue` / Australia East |
+| App / WebJob | `signal-aue-957858fe` / `linkedin-crawler` |
+| API base URL | `https://signal-aue-957858fe.azurewebsites.net` |
+| Blob account / container | `sig957858feaue` / `signal-data` |
+| Credential vault | `sig-l5smxkxbdrtja` |
+
+The job runs at **06:00 UTC daily** (`0 0 6 * * *`): 17:00 Sydney during
+AEDT, 16:00 during AEST. The iPhone does not have to be open. The live reader
+refreshes when foregrounded and every 60 seconds while active; it polls every
+four seconds while a crawl or processing run is reported as running.
+The app's **Sync imported posts** button processes already-stored raw data;
+it does not log in to LinkedIn or start a new browser collection.
+
+Storing secrets alone does not start collection. App Service must have both
+`SIGNAL_LINKEDIN_CRAWLER_USERNAME` and `SIGNAL_LINKEDIN_CRAWLER_PASSWORD`
+configured as resolved Key Vault references, plus
+`SIGNAL_LINKEDIN_CRAWLER_ENABLED=true` and `WEBJOBS_DISABLE_SCHEDULE=0`.
+The [secure setup helper](#new-container-stack-with-entra-only-azure-openai)
+verifies those references and backend health before enabling the schedule.
+It does not perform a login or trigger the first crawl.
+
+For an immediate first run, open **Azure Portal > rg-signal-aue >
+signal-aue-957858fe > WebJobs > linkedin-crawler > Run**.
+Open that job's **Logs** and select the latest run. A Kudu `Success` by itself
+is not evidence of extraction: a disabled job also exits successfully.
+Check the persisted crawl status and source provenance below.
+
+### Where to see the extracted data
+
+Open **Storage account sig957858feaue > Data storage > Containers >
+signal-data** using **Microsoft Entra user account** authentication, not an
+account key. This requires both the roles and private-network access described
+in the next section.
+
+| Blob path | What to verify |
+|---|---|
+| `metadata/last-crawl.json` | Collection `status`, `code`, `extracted`, `last_success_at`, start/finish times and limits |
+| `linkedin/raw/YYYY-MM-DD/<import-id>.json` | Original batch; actual browser-collected records have `source: "linkedin_crawler"` |
+| `metadata/last-sync.json` | AI processing status, imported/relevant/duplicate counts and pending work for the latest processing batch |
+| `linkedin/processed/YYYY-MM-DD/<content-id>.json` | Reader-ready posts, preserved originals, AI insights and source-image URLs |
+| `metadata/ingestion-state.json` | Seen-content hashes and processing checkpoints; not a new full post export |
+| `exports/daily-summary.json` | Timestamp and top post IDs, not complete source content |
+
+Dates in these paths are UTC **import dates**, not necessarily publication
+dates. Default retention removes raw/processed feed files after three days;
+saved posts remain independently in `bookmarks/bookmarks.json`. Total-ever-
+extracted, this-run-extracted, latest-batch-processed and currently-retained
+counts measure different things.
+
+You can check status without direct Blob access: connect SIGNAL to the live
+backend, leave demo mode, and open **Settings > LINKEDIN**. It shows background
+collection state, last success, collection count and processing state.
+The authenticated API exposes the same information through
+`GET /api/linkedin/status`, `GET /api/linkedin/sync/status`,
+`GET /api/statistics` and `GET /api/posts`. Use the independent private-reader
+session, never your LinkedIn password. Opening those URLs without a session
+returns HTTP 401. The integration's `connected` field refers to OAuth identity,
+not whether the browser crawler's credentials are configured.
+
+### Blob Portal access: roles and networking are separate
+
+The operator needs **Storage Blob Data Reader** at this dedicated storage
+account (or an appropriately scoped container) plus ARM **Reader** or a role
+that includes resource navigation. Subscription **Owner** already covers that
+navigation, but it does not automatically grant Entra-authorized Blob reads.
+On November 4, 2026, the signed-in operator was granted and verified with
+**Storage Blob Data Reader at `sig957858feaue` only**, without write/delete
+rights from that new assignment. The app keeps its separate container-scoped
+Storage Blob Data Contributor role.
+Sign into Portal with that same Azure account; an assignment to one account
+does not grant access to another account signed into the browser.
+
+**The account is private-network-only. A data role does not bypass its network
+boundary.** Public network access and shared-key access remain disabled.
+The browser running Azure Portal, Storage Explorer, Azure CLI and ordinary
+Cloud Shell still need a route and private DNS to the Blob private endpoint.
+Use an approved VPN/ExpressRoute/private-network connection or a client inside
+the connected VNet. An ordinary internet-connected laptop or default Cloud
+Shell cannot browse these files just because it has the read role. The current
+stack does not provision a workstation VPN or a VNet-integrated Cloud Shell.
+Do not enable all-network access or account keys to work around this.
+
+After connecting to the private network, allow several minutes for RBAC
+propagation, refresh Portal, and select Microsoft Entra authentication.
+Equivalent commands, from that **network-connected** terminal, are:
+
+```powershell
+$sub = '<approved-subscription-id>'
+$state = ".azure\private\$sub"
+New-Item -ItemType Directory -Force -Path $state | Out-Null
+
+az storage blob list --subscription $sub --account-name sig957858feaue `
+  --container-name signal-data --auth-mode login --prefix linkedin/ `
+  --query "[].{name:name,updated:properties.lastModified,size:properties.contentLength}" `
+  --output table
+
+az storage blob download --subscription $sub --account-name sig957858feaue `
+  --container-name signal-data --auth-mode login --name metadata/last-crawl.json `
+  --file "$state\last-crawl.json" --overwrite true --no-progress
+```
+
+Keep downloaded posts and state out of Git. The ignored `.azure\private`
+directory is suitable for local inspection artifacts. See Microsoft's
+[Blob role guidance](https://learn.microsoft.com/azure/storage/blobs/assign-azure-role-data-access)
+and [private-endpoint networking guidance](https://learn.microsoft.com/azure/storage/common/storage-private-endpoints).
+
+### Observed live result and safe recovery
+
+**Verified November 4, 2026:** both LinkedIn credential references are
+`Resolved`, collection is enabled, and scheduling is enabled. Manually triggered
+Azure run **`202611040147010832`** ended `Failed`; persisted crawl state is
+**`action_required` / `access_restricted`**, with **0 extracted** and no previous
+successful collection. LinkedIn refused the initial browser request with one
+of the worker's guarded HTTP statuses (401/403/429); the sanitized code does not
+identify which. This is not proof of an incorrect password or an Azure AI error.
+The one retained reader post was verified as the explicitly labeled synthetic
+deployment sample, with **0 crawler-origin posts**.
+
+Scheduled runs remain configured, but an `action_required` worker does not keep
+attempting login. Resolve the restriction through approved LinkedIn account/
+access support first, or use an authorized export. Do not bypass CAPTCHA/MFA,
+rotate proxies to evade restrictions, delete the pause metadata, or repeatedly
+force login. A fresh ephemeral browser context is used on every actual attempt;
+no login cookie/session is retained.
+
+**Only after the restriction is resolved**, an authorized operator can explicitly
+resume the Azure job using the Kudu API; this runs in Azure, not against a local
+development store:
+
+```powershell
+$sub = '<approved-subscription-id>'
+$token = az account get-access-token --subscription $sub `
+  --resource https://management.azure.com --query accessToken --output tsv
+if ($LASTEXITCODE -ne 0) { throw 'Azure authentication failed.' }
+try {
+  Invoke-RestMethod -Method Post `
+    -Uri 'https://signal-aue-957858fe.scm.azurewebsites.net/api/triggeredwebjobs/linkedin-crawler/run?arguments=--resume' `
+    -Headers @{ Authorization = "Bearer $token" } | Out-Null
+} finally {
+  Remove-Variable token
+}
+```
+
+Do not print or share the token. Normal **Run** and changing Key Vault values
+do not clear the pause. Confirm `last-crawl.json` becomes `completed` with an
+updated `last_success_at`, inspect raw provenance and processing status, and
+then refresh the live reader before claiming a successful extraction.
+
 ## Azure deployment
 
 The deploy command creates paid Azure resources. Choose the correct subscription
@@ -417,8 +602,10 @@ are supplied dynamically by the deployment wrapper. Globally unique names are
 never hardcoded. Azure OpenAI provision/quota/region approval remains separate.
 Set `SIGNAL_CORS_ORIGINS` to a JSON array of only your actual web preview origins
 if needed; native iOS does not require CORS. Default production CORS is empty.
-Azure public service endpoints are authenticated, not private-network-isolated;
-the **Blob container is private**, not publicly readable.
+The legacy ZIP stack's public service endpoints are authenticated, not
+private-network-isolated; the **Blob container is private**, not publicly
+readable. The deployed container stack below instead uses private endpoints
+and disables public network access to Storage and Key Vault.
 
 To redeploy only backend code:
 
@@ -502,13 +689,36 @@ and revokes its session afterward. It never types a production passphrase into
 a page, so failure snapshots cannot capture it.
 
 To configure the crawler **after rotating any password previously shared in
-chat**, run the interactive helper locally:
+chat**, run the interactive helper locally. **Fresh clones do not include
+`.azure\private` or a Python environment.** In VS Code's PowerShell terminal,
+from the repository root, install Python 3.12 and Azure CLI if missing, then:
 
 ```powershell
-backend\.venv\Scripts\python deployment\configure-crawler.py `
-  --subscription <approved-subscription-id> --resource-group <resource-group> `
-  --outputs .azure\private\<subscription-id>\<app>.outputs.json
+py -3.12 -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+az login
+
+$sub = '<approved-subscription-id>'
+$app = 'signal-aue-957858fe'
+$group = 'rg-signal-aue'
+$state = ".azure\private\$sub"
+New-Item -ItemType Directory -Force -Path $state | Out-Null
+
+# Read only the existing deployment's nonsecret outputs; do not redeploy.
+$outputs = az deployment sub show --subscription $sub --name "$app-bootstrap" `
+  --query properties.outputs --output json --only-show-errors
+if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve deployment outputs.' }
+$outputs | Set-Content -Path "$state\$app.outputs.json" -Encoding utf8
+
+backend\.venv\Scripts\python.exe deployment\configure-crawler.py `
+  --subscription $sub --resource-group $group `
+  --outputs "$state\$app.outputs.json"
 ```
+
+For another deployment, substitute its app/group/bootstrap deployment names.
+No venv activation is required. Do not run `Prepare`/`Deploy` merely to recover
+an outputs file or regenerate production reader/session secrets. These commands
+do not download LinkedIn credentials.
 
 It prompts for credentials without command-line password arguments or local
 credential files. Azure Resource Manager writes them into the private Key Vault;
@@ -525,9 +735,11 @@ as did actual Entra-authenticated model processing, private Blob persistence,
 search, saved/read state, and explanations. Both iPhone-sized WebKit orientations
 passed against that API. The actual Azure WebJob completed run
 `202611030819040026` successfully with collection disabled. The sample is synthetic;
-real LinkedIn login/extraction and physical iPhone installation remain unverified.
-Production CORS is empty, both AI key settings are empty, and collection/scheduling
-remain disabled until rotated credentials are configured securely.
+real LinkedIn login/extraction and physical iPhone installation were unverified
+at that checkpoint. Production CORS and both AI key settings remain empty.
+The [November 4 runtime check](#observed-live-result-and-safe-recovery) supersedes
+the old disabled-crawler state: credentials resolve and scheduling is enabled,
+but LinkedIn access is restricted and collection is paused.
 
 ### Browser-capable App Service WebJob
 

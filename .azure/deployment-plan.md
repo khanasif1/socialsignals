@@ -6,9 +6,9 @@ Local implementation and simulator verification are complete. The user has
 approved Azure resource creation in Australia East in the selected subscription.
 Cloud quota, policy, permissions, Entra-only AI configuration, and deployment
 validation passed. The application is deployed and live storage/AI/reader
-verification passed. The tenant keeps Storage and Key Vault
-public endpoints disabled, so the rollout must use private service connectivity.
-Do not try to override that restriction.
+verification passed. The deployed stack keeps Storage and Key Vault public
+endpoints disabled and uses private service connectivity. Preserve that network
+boundary; do not broaden access to work around an RBAC or client-routing issue.
 
 ## Scope
 
@@ -194,12 +194,13 @@ Completed locally without real LinkedIn credentials or Azure resource changes:
 - Screenshots and browser report are in ignored frontend test-output directories.
   The earlier manual iframe and demo-storage changes were removed/restored.
 
-Pending: approved account login and unattended live LinkedIn collection, plus
-installation/testing on a physical iPhone. The actual Azure WebJob was manually
-executed successfully while collection remained disabled; the daily schedule
-is intentionally disabled pending rotated Key Vault credentials. Native simulator
-verification does not prove physical-device behavior. Account challenges are never
-bypassed; live LinkedIn DOM compatibility and account acceptance are unverified.
+Pending: successful authorized live LinkedIn collection, a private-network route
+for direct workstation Blob browsing, and physical iPhone installation/testing.
+The November 4 runtime follow-up below supersedes the earlier disabled-crawler
+checkpoint: credentials resolve and the schedule is enabled, but the first real
+attempt stopped with `access_restricted`. Collection is paused pending account/
+access resolution and explicit resume. Native simulator verification does not
+prove physical-device behavior. Account challenges are never bypassed.
 
 ## Validation proof
 
@@ -303,6 +304,37 @@ LinkedIn login was attempted, no disclosed credential was used, and no account
 challenge will be bypassed. Apple signing and physical-device access remain
 separate prerequisites.
 
+## Runtime follow-up: November 4, 2026
+
+The user confirmed configuring the replacement credentials. Both credential
+settings are Key Vault references with live status `Resolved`. The app has
+`SIGNAL_LINKEDIN_CRAWLER_ENABLED=true` and `WEBJOBS_DISABLE_SCHEDULE=0`.
+No LinkedIn credential values were retrieved or printed during this follow-up.
+
+An actual immediate job was triggered once: `202611040147010832`, finishing at
+01:47:55 UTC with Kudu status `Failed`. The persisted Blob-backed API reports
+`action_required`, code `access_restricted`, 0 extracted, and no last success.
+The collector refused a guarded 401/403/429 response before feed extraction;
+the sanitized code does not distinguish the exact HTTP status. No challenge
+was bypassed and no automatic resume or repeated login was attempted.
+The retained-post API confirmed exactly one explicitly synthetic deployment
+sample and zero `linkedin_crawler` posts.
+
+The signed-in operator already had inherited Owner, but no Blob data role.
+Storage Blob Data Reader was assigned and verified at only `sig957858feaue`'s
+account scope; no new operator write/delete role was granted. The app's
+existing scoped service roles are unchanged.
+
+Public Blob listing from this workstation was tested and remains network-blocked.
+Storage still has public networking and shared-key access disabled. A data role
+does not supply private-endpoint routing or DNS to a browser. The user was
+unavailable to choose an approved private client route or policy-permitted
+network change, so the private boundary was preserved. The runbook documents
+private-client CLI/Portal access and existing authenticated app/API status.
+The initial deployment checkpoint above is historical, not the current crawler
+state. Direct workstation Blob browsing and live LinkedIn collection remain
+external blockers, not completed verification.
+
 `docker build --quiet --tag signal-crawler:cloud-validated --file deployment/Dockerfile .`
 passed against the Linux engine, producing image
 `sha256:9f917fadaad85285dd84b6d331c20a41457e54e48962cde8cb4bb181853c63d1`.
@@ -311,12 +343,14 @@ test, passed. Previous complete container and native proof remains recorded abov
 
 ## Role Assignment Verification
 
-Status: Verified (static infrastructure and application operation review).
+Status: Verified (service roles live on November 3; operator assignment live on
+November 4, 2026).
 The sole service identity is the web application's system-assigned identity.
 Its Storage Blob Data Contributor role is scoped to the private container
 (JSON reads/writes, listing, properties, and leases); Key Vault Secrets User is
 scoped to the dedicated vault; AcrPull to the new registry; Cognitive Services
 OpenAI User to the new Entra-only account. No application role is subscription-
-or resource-group-scoped. Local user data-plane roles are not needed for the
-planned authenticated API smoke test, which exercises the application's identity.
-Actual provisioned roles and runtime access must still be checked after deployment.
+or resource-group-scoped. The authenticated API smoke test exercised the
+application's identity and private connectivity. The separate operator now has
+account-scoped Storage Blob Data Reader as recorded above; its assignment was
+verified, but workstation data-plane requests remain blocked by networking.
